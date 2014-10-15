@@ -38,6 +38,9 @@ public class BaseKeystoneRestApiExpectTest<S> extends BaseRestApiExpectTest<S> {
    protected HttpRequest keystoneAuthWithUsernameAndPasswordAndTenantName;
    protected HttpRequest keystoneAuthWithUsernameAndPassword;
    protected HttpRequest keystoneAuthWithAccessKeyAndSecretKey;
+   protected HttpRequest keystoneAuthWithTokenAndTenantName;
+   protected HttpRequest keystoneAuthWithTokenAndTenantId;
+   protected HttpRequest keystoneAuthWithToken;
    protected String authToken;
    protected HttpResponse responseWithKeystoneAccess;
    protected String endpoint = "http://localhost:5000";
@@ -50,6 +53,12 @@ public class BaseKeystoneRestApiExpectTest<S> extends BaseRestApiExpectTest<S> {
             .initialAuthWithUsernameAndPassword(identity, credential);
       keystoneAuthWithAccessKeyAndSecretKey = KeystoneFixture.INSTANCE
             .initialAuthWithAccessKeyAndSecretKeyAndTenantName(identity, credential);
+      keystoneAuthWithTokenAndTenantName = KeystoneFixture.INSTANCE
+            .initialAuthWithTokenAndTenantName(credential);
+      keystoneAuthWithTokenAndTenantId = KeystoneFixture.INSTANCE
+            .initialAuthWithTokenAndTenantId(credential);
+      keystoneAuthWithToken = KeystoneFixture.INSTANCE
+            .initialAuthWithToken(credential);
 
       authToken = KeystoneFixture.INSTANCE.getAuthToken();
       responseWithKeystoneAccess = KeystoneFixture.INSTANCE.responseWithAccess();

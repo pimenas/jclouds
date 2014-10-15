@@ -28,6 +28,7 @@ import org.jclouds.openstack.keystone.v2_0.binders.BindAuthToJsonPayload;
 import org.jclouds.openstack.keystone.v2_0.domain.Access;
 import org.jclouds.openstack.keystone.v2_0.domain.ApiAccessKeyCredentials;
 import org.jclouds.openstack.keystone.v2_0.domain.PasswordCredentials;
+import org.jclouds.openstack.keystone.v2_0.domain.TokenCredentials;
 import org.jclouds.rest.annotations.MapBinder;
 import org.jclouds.rest.annotations.PayloadParam;
 import org.jclouds.rest.annotations.SelectJson;
@@ -88,4 +89,29 @@ public interface AuthenticationApi extends Closeable {
    @MapBinder(BindAuthToJsonPayload.class)
    Access authenticateWithTenantIdAndCredentials(@Nullable @PayloadParam("tenantId") String tenantId,
          ApiAccessKeyCredentials apiAccessKeyCredentials);
+
+   /**
+    * Authenticate to generate a token.
+    *
+    * @return access with token
+    */
+   @Named("authenticate")
+   @POST
+   @SelectJson("access")
+   @MapBinder(BindAuthToJsonPayload.class)
+   Access authenticateWithTenantNameAndCredentials(@Nullable @PayloadParam("tenantName") String tenantName,
+         TokenCredentials tokenCredentials);
+
+   /**
+    * Authenticate to generate a token.
+    *
+    * @return access with token
+    */
+   @Named("authenticate")
+   @POST
+   @SelectJson("access")
+   @MapBinder(BindAuthToJsonPayload.class)
+   Access authenticateWithTenantIdAndCredentials(@Nullable @PayloadParam("tenantId") String tenantId,
+         TokenCredentials tokenCredentials);
+
 }

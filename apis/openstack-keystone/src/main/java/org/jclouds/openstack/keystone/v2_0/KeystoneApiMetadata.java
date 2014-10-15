@@ -64,8 +64,8 @@ public class KeystoneApiMetadata extends BaseHttpApiMetadata<KeystoneApi> {
       protected Builder() {
           id("openstack-keystone")
          .name("OpenStack Keystone Essex+ API")
-         .identityName("${tenantName}:${userName} or ${userName}, if your keystone supports a default tenant")
-         .credentialName("${password}")
+         .identityName("${tenantName}:${userName} or ${tenantId}:${userName} or ${userName}, if your keystone supports a default tenant")
+         .credentialName("${password} or ${token}")
          .endpointName("Keystone base url ending in /v${jclouds.api-version}/")
          .documentation(URI.create("http://api.openstack.org/"))
          .version("2.0")

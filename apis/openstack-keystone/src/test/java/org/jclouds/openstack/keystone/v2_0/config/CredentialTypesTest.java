@@ -19,6 +19,7 @@ package org.jclouds.openstack.keystone.v2_0.config;
 import static org.testng.Assert.assertEquals;
 
 import org.jclouds.openstack.keystone.v2_0.domain.PasswordCredentials;
+import org.jclouds.openstack.keystone.v2_0.domain.TokenCredentials;
 import org.testng.annotations.Test;
 
 import com.google.common.collect.ImmutableSet;
@@ -31,6 +32,11 @@ public class CredentialTypesTest {
                "password")), CredentialTypes.PASSWORD_CREDENTIALS);
    }
 
+   public void testCredentialTypeOfWhenValidToken() {
+      assertEquals(CredentialTypes.credentialTypeOf(TokenCredentials.createWithToken("token")),
+            CredentialTypes.TOKEN_CREDENTIALS);
+   }
+
    @Test(expectedExceptions = IllegalArgumentException.class)
    public void testCredentialTypeOfWithoutAnnotation() {
       CredentialTypes.credentialTypeOf("");
@@ -40,6 +46,12 @@ public class CredentialTypesTest {
       assertEquals(CredentialTypes.indexByCredentialType(
                ImmutableSet.of(PasswordCredentials.createWithUsernameAndPassword("username", "password"))).keySet(),
                ImmutableSet.of(CredentialTypes.PASSWORD_CREDENTIALS));
+   }
+
+   public void testIndexByCredentialTypeWhenValidToken() {
+      assertEquals(CredentialTypes.indexByCredentialType(
+               ImmutableSet.of(TokenCredentials.createWithToken("token"))).keySet(),
+               ImmutableSet.of(CredentialTypes.TOKEN_CREDENTIALS));
    }
 
    @Test(expectedExceptions = IllegalArgumentException.class)

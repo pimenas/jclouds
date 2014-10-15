@@ -86,6 +86,38 @@ public enum KeystoneFixture {
                                        accessKey, secretKey, getTenantId()), "application/json")).build();
    }
 
+   public HttpRequest initialAuthWithTokenAndTenantName(String token) {
+      return HttpRequest.builder().method("POST")
+         .endpoint("http://localhost:5000/v2.0/tokens")
+         .addHeader(HttpHeaders.ACCEPT, "application/json")
+         .payload(
+               payloadFromStringWithContentType(
+                  format(
+                     "{\"auth\":{\"token\":{\"id\":\"%s\"},\"tenantName\":\"%s\"}}",
+                     token, getTenantName()), "application/json")).build();
+   }
+
+   public HttpRequest initialAuthWithTokenAndTenantId(String token) {
+      return HttpRequest.builder().method("POST")
+         .endpoint("http://localhost:5000/v2.0/tokens")
+         .addHeader(HttpHeaders.ACCEPT, "application/json")
+         .payload(
+               payloadFromStringWithContentType(
+                  format(
+                     "{\"auth\":{\"token\":{\"id\":\"%s\"},\"tenantId\":\"%s\"}}",
+                     token, getTenantId()), "application/json")).build();
+   }
+
+   public HttpRequest initialAuthWithToken(String token) {
+      return HttpRequest.builder().method("POST")
+         .endpoint("http://localhost:5000/v2.0/tokens")
+         .addHeader(HttpHeaders.ACCEPT, "application/json")
+         .payload(
+               payloadFromStringWithContentType(
+                  format(
+                     "{\"auth\":{\"token\":{\"id\":\"%s\"}}}", token), "application/json")).build();
+   }
+
    public String getAuthToken() {
       return  "Auth_4f173437e4b013bee56d1007";
    }

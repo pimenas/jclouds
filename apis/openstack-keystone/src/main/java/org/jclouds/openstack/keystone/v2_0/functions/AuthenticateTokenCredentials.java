@@ -23,38 +23,38 @@ import org.jclouds.openstack.keystone.v2_0.AuthenticationApi;
 import org.jclouds.openstack.keystone.v2_0.config.CredentialType;
 import org.jclouds.openstack.keystone.v2_0.config.CredentialTypes;
 import org.jclouds.openstack.keystone.v2_0.domain.Access;
-import org.jclouds.openstack.keystone.v2_0.domain.PasswordCredentials;
+import org.jclouds.openstack.keystone.v2_0.domain.TokenCredentials;
 import org.jclouds.openstack.keystone.v2_0.functions.internal.BaseAuthenticator;
 
 import com.google.common.base.Optional;
 
-@CredentialType(CredentialTypes.PASSWORD_CREDENTIALS)
+@CredentialType(CredentialTypes.TOKEN_CREDENTIALS)
 @Singleton
-public class AuthenticatePasswordCredentials extends BaseAuthenticator<PasswordCredentials> {
+public class AuthenticateTokenCredentials extends BaseAuthenticator<TokenCredentials> {
    protected final AuthenticationApi api;
 
    @Inject
-   public AuthenticatePasswordCredentials(AuthenticationApi api) {
+   public AuthenticateTokenCredentials(AuthenticationApi api) {
       this.api = api;
    }
 
    @Override
-   protected Access authenticateWithTenantName(Optional<String> tenantName, PasswordCredentials passwordCredentials) {
-      return api.authenticateWithTenantNameAndCredentials(tenantName.orNull(), passwordCredentials);
+   protected Access authenticateWithTenantName(Optional<String> tenantName, TokenCredentials tokenCredentials) {
+      return api.authenticateWithTenantNameAndCredentials(tenantName.orNull(), tokenCredentials);
    }
 
    @Override
-   protected Access authenticateWithTenantId(Optional<String> tenantId, PasswordCredentials passwordCredentials) {
-      return api.authenticateWithTenantIdAndCredentials(tenantId.orNull(), passwordCredentials);
+   protected Access authenticateWithTenantId(Optional<String> tenantId, TokenCredentials tokenCredentials) {
+      return api.authenticateWithTenantIdAndCredentials(tenantId.orNull(), tokenCredentials);
    }
 
    @Override
-   public PasswordCredentials createCredentials(String identity, String credential) {
-      return PasswordCredentials.createWithUsernameAndPassword(identity, credential);
+   public TokenCredentials createCredentials(String identity, String credential) {
+      return TokenCredentials.createWithToken(credential);
    }
 
    @Override
    public String toString() {
-      return "authenticatePasswordCredentials()";
+      return "authenticateTokenCredentials()";
    }
 }

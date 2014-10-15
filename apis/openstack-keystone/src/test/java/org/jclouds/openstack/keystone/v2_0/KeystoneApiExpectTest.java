@@ -42,6 +42,19 @@ public class KeystoneApiExpectTest extends BaseKeystoneRestApiExpectTest<Keyston
       assertEquals(metadata, new ParseRackspaceApiMetadataTest().expected());
    }
 
+   public void testGetApiMetaDataWithTokenCredentialsAuth() {
+      ParseRackspaceApiMetadataTest test = new ParseRackspaceApiMetadataTest();
+      KeystoneApi api = requestsSendResponses(
+            keystoneAuthWithTokenAndTenantName, responseWithKeystoneAccess,
+            HttpRequest.builder().method("GET").endpoint(endpoint + "/v2.0/").
+            addHeader("Accept", APPLICATION_JSON).build(),
+            HttpResponse.builder().statusCode(200).
+                  payload(payloadFromResourceWithContentType(test.resource(), APPLICATION_JSON)).build());
+      ApiMetadata metadata = api.getApiMetadata();
+
+      assertEquals(metadata, test.expected());
+   }
+
    public void testGetApiMetaDataFailNotFound() {
       KeystoneApi api = requestsSendResponses(
             keystoneAuthWithUsernameAndPasswordAndTenantName, responseWithKeystoneAccess,

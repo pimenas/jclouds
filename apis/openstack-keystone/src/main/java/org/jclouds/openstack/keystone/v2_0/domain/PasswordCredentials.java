@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.beans.ConstructorProperties;
 
 import org.jclouds.openstack.keystone.v2_0.config.CredentialType;
+import org.jclouds.openstack.keystone.v2_0.config.CredentialTypes;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.MoreObjects.ToStringHelper;
@@ -32,7 +33,7 @@ import com.google.common.base.Objects;
  * @see <a href="http://docs.openstack.org/api/openstack-identity-service/2.0/content/POST_authenticate_v2.0_tokens_Service_API_Api_Operations.html#d662e583"
 />
  */
-@CredentialType("passwordCredentials")
+@CredentialType(CredentialTypes.PASSWORD_CREDENTIALS)
 public class PasswordCredentials {
 
    public static Builder<?> builder() {

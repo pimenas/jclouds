@@ -90,8 +90,8 @@ public abstract class BaseAuthenticator<C> implements Function<Credentials, Acce
 
    public abstract C createCredentials(String identity, String credential);
 
-   protected abstract Access authenticateWithTenantId(Optional<String> tenantId, C apiAccessKeyCredentials);
+   protected abstract Access authenticateWithTenantId(Optional<String> tenantId, C credentials);
 
-   protected abstract Access authenticateWithTenantName(Optional<String> tenantId, C apiAccessKeyCredentials);
+   protected abstract Access authenticateWithTenantName(Optional<String> tenantId, C credentials);
 
 }

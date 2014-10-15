@@ -32,6 +32,8 @@ public class CredentialTypes {
 
    public static final String PASSWORD_CREDENTIALS = "passwordCredentials";
 
+   public static final String TOKEN_CREDENTIALS = "token";
+
    public static <T> String credentialTypeOf(T input) {
       Class<?> authenticationType = input.getClass();
       checkArgument(authenticationType.isAnnotationPresent(CredentialType.class),
