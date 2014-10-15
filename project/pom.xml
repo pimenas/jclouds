@@ -117,6 +117,16 @@
       <id>jclouds-github-pages-site</id>
       <url>${maven.site.url.base}/${project.version}</url>
     </site>
+    <repository>
+      <id>deployment</id>
+      <name>Internal Releases</name>
+      <url>http://176.58.97.235:8081/nexus/content/repositories/releases/</url>
+    </repository>
+    <snapshotRepository>
+      <id>deployment</id>
+      <name>Internal Releases</name>
+      <url>http://176.58.97.235:8081/nexus/content/repositories/snapshots/</url>
+    </snapshotRepository>
   </distributionManagement>
 
   <developers>
