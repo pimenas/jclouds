@@ -16,14 +16,14 @@
  */
 package org.jclouds.openstack.swift.v1.domain;
 
-import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Objects.equal;
+import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.inject.Named;
 
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 
 /**
  * Represents a single segment of a multi-part upload.
@@ -40,7 +40,7 @@ public class Segment {
    private Segment(String path, String etag, long sizeBytes) {
       this.path = checkNotNull(path, "path");
       this.etag = checkNotNull(etag, "etag of %s", path);
-      this.sizeBytes = checkNotNull(sizeBytes, "sizeBytes of %s", path);
+      this.sizeBytes = sizeBytes;
    }
 
    /**

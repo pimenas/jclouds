@@ -16,7 +16,7 @@
  */
 package org.jclouds.http.handlers;
 
-import static org.jclouds.http.HttpUtils.releasePayload;
+import static java.lang.Math.max;
 
 import java.io.IOException;
 import java.util.Random;
@@ -94,7 +94,6 @@ public class BackoffLimitedRetryHandler implements HttpRetryHandler, IOException
    }
 
    public boolean shouldRetryRequest(HttpCommand command, HttpResponse response) {
-      releasePayload(response);
       return ifReplayableBackoffAndReturnTrue(command);
    }
 
@@ -119,15 +118,21 @@ public class BackoffLimitedRetryHandler implements HttpRetryHandler, IOException
    }
 
    public void imposeBackoffExponentialDelay(long period, int pow, int failureCount, int max, String commandDescription) {
-      imposeBackoffExponentialDelay(period, period * 10l, pow, failureCount, max, commandDescription);
+      imposeBackoffExponentialDelay(period, period * 10L, pow, failureCount, max, commandDescription);
    }
 
    public void imposeBackoffExponentialDelay(long period, long maxPeriod, int pow, int failureCount, int max,
             String commandDescription) {
+      if (period == 0) {
+         // Essentially disables the exponential backoff
+         logger.debug("Retry %d/%d: delaying for %d ms: %s", failureCount, max, 0, commandDescription);
+         return;
+      }
       long delayMs = (long) (period * Math.pow(failureCount, pow));
       // Add random delay to avoid thundering herd problem when multiple
       // simultaneous failed requests retry after sleeping for the same delay.
-      delayMs += new Random().nextInt((int) (delayMs / 10));
+      // Throws an exception for a value of 0
+      delayMs += new Random().nextInt((int) (max(delayMs / 10, 1) ));
       delayMs = delayMs > maxPeriod ? maxPeriod : delayMs;
       logger.debug("Retry %d/%d: delaying for %d ms: %s", failureCount, max, delayMs, commandDescription);
       try {
@@ -136,5 +141,4 @@ public class BackoffLimitedRetryHandler implements HttpRetryHandler, IOException
          Throwables.propagate(e);
       }
    }
-
 }

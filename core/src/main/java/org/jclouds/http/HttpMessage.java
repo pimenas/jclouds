@@ -30,8 +30,8 @@ import org.jclouds.javax.annotation.Nullable;
 import org.jclouds.util.Multimaps2;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.io.ByteSource;
@@ -65,11 +65,9 @@ public class HttpMessage extends PayloadEnclosingImpl {
 
       /**
        * @see HttpMessage#getPayload()
-       * @deprecated see payload(ByteSource.wrap(byte[]))
        */
-      @Deprecated
       public T payload(byte [] payload) {
-         this.payload = Payloads.newPayload(checkNotNull(payload, "payload"));
+         this.payload = Payloads.newByteArrayPayload(checkNotNull(payload, "payload"));
          return self();
       }
 
@@ -83,9 +81,7 @@ public class HttpMessage extends PayloadEnclosingImpl {
 
       /**
        * @see HttpMessage#getPayload()
-       * @deprecated see payload(Files.asByteSource(File))
        */
-      @Deprecated
       public T payload(File payload) {
          this.payload = Payloads.newFilePayload(checkNotNull(payload, "payload"));
          return self();
@@ -101,9 +97,7 @@ public class HttpMessage extends PayloadEnclosingImpl {
 
       /**
        * @see HttpMessage#getPayload()
-       * @deprecated see payload(ByteSource.wrap(String.getBytes()))
        */
-      @Deprecated
       public T payload(String payload) {
          this.payload = Payloads.newStringPayload(checkNotNull(payload, "payload"));
          return self();

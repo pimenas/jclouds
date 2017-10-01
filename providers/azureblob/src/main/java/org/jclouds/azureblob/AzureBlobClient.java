@@ -17,15 +17,9 @@
 package org.jclouds.azureblob;
 
 import static com.google.common.net.HttpHeaders.EXPECT;
-import static org.jclouds.Fallbacks.TrueOnNotFoundOr404;
-import static org.jclouds.Fallbacks.VoidOnNotFoundOr404;
-import static org.jclouds.azureblob.AzureBlobFallbacks.FalseIfContainerAlreadyExists;
-import static org.jclouds.blobstore.BlobStoreFallbacks.FalseOnContainerNotFound;
-import static org.jclouds.blobstore.BlobStoreFallbacks.FalseOnKeyNotFound;
-import static org.jclouds.blobstore.BlobStoreFallbacks.NullOnContainerNotFound;
-import static org.jclouds.blobstore.BlobStoreFallbacks.NullOnKeyNotFound;
 
 import java.io.Closeable;
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
@@ -33,17 +27,26 @@ import javax.inject.Named;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.GET;
 import javax.ws.rs.HEAD;
+import javax.ws.rs.HeaderParam;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.QueryParam;
 
+import org.jclouds.Fallbacks.TrueOnNotFoundOr404;
+import org.jclouds.Fallbacks.VoidOnNotFoundOr404;
 import org.jclouds.azure.storage.domain.BoundedSet;
 import org.jclouds.azure.storage.filters.SharedKeyLiteAuthentication;
 import org.jclouds.azure.storage.options.ListOptions;
 import org.jclouds.azure.storage.reference.AzureStorageHeaders;
+import org.jclouds.azureblob.AzureBlobFallbacks.FalseIfContainerAlreadyExists;
 import org.jclouds.azureblob.binders.BindAzureBlobMetadataToRequest;
+import org.jclouds.azureblob.binders.BindAzureBlobMetadataToMultipartRequest;
 import org.jclouds.azureblob.binders.BindAzureBlocksToRequest;
+import org.jclouds.azureblob.binders.BindAzureContentMetadataToRequest;
+import org.jclouds.azureblob.binders.BindAzureCopyOptionsToRequest;
+import org.jclouds.azureblob.binders.BindPublicAccessToRequest;
+import org.jclouds.azureblob.domain.AccessTier;
 import org.jclouds.azureblob.domain.AzureBlob;
 import org.jclouds.azureblob.domain.BlobProperties;
 import org.jclouds.azureblob.domain.ContainerProperties;
@@ -55,6 +58,7 @@ import org.jclouds.azureblob.functions.ParseBlobFromHeadersAndHttpContent;
 import org.jclouds.azureblob.functions.ParseBlobPropertiesFromHeaders;
 import org.jclouds.azureblob.functions.ParseContainerPropertiesFromHeaders;
 import org.jclouds.azureblob.functions.ParsePublicAccessHeader;
+import org.jclouds.azureblob.options.CopyBlobOptions;
 import org.jclouds.azureblob.options.CreateContainerOptions;
 import org.jclouds.azureblob.options.ListBlobsOptions;
 import org.jclouds.azureblob.predicates.validators.BlockIdValidator;
@@ -62,9 +66,14 @@ import org.jclouds.azureblob.predicates.validators.ContainerNameValidator;
 import org.jclouds.azureblob.xml.AccountNameEnumerationResultsHandler;
 import org.jclouds.azureblob.xml.BlobBlocksResultsHandler;
 import org.jclouds.azureblob.xml.ContainerNameEnumerationResultsHandler;
+import org.jclouds.blobstore.BlobStoreFallbacks.FalseOnContainerNotFound;
+import org.jclouds.blobstore.BlobStoreFallbacks.FalseOnKeyNotFound;
+import org.jclouds.blobstore.BlobStoreFallbacks.NullOnContainerNotFound;
+import org.jclouds.blobstore.BlobStoreFallbacks.NullOnKeyNotFound;
 import org.jclouds.blobstore.binders.BindMapToHeadersWithPrefix;
 import org.jclouds.http.functions.ParseETagHeader;
 import org.jclouds.http.options.GetOptions;
+import org.jclouds.io.ContentMetadata;
 import org.jclouds.io.Payload;
 import org.jclouds.rest.annotations.BinderParam;
 import org.jclouds.rest.annotations.Fallback;
@@ -220,6 +229,17 @@ public interface AzureBlobClient extends Closeable {
    PublicAccess getPublicAccessForContainer(
          @PathParam("container") @ParamValidators(ContainerNameValidator.class) String container);
 
+   /**
+    * Returns whether data in the container may be accessed publicly and the level of access
+    */
+   @Named("SetContainerACL")
+   @PUT
+   @Path("{container}")
+   @QueryParams(keys = { "restype", "comp" }, values = { "container", "acl" })
+   @ResponseParser(ParseETagHeader.class)
+   String setPublicAccessForContainer(
+         @PathParam("container") @ParamValidators(ContainerNameValidator.class) String container,
+         @BinderParam(BindPublicAccessToRequest.class) PublicAccess access);
 
    /**
     * The Delete Container operation marks the specified container for deletion. The container and
@@ -347,7 +367,10 @@ public interface AzureBlobClient extends Closeable {
     *  The Put Block List assembles a list of blocks previously uploaded with Put Block into a single
     *  blob. Blocks are either already committed to a blob or uncommitted. The blocks ids passed here
     *  are searched for first in the uncommitted block list; then committed using the "latest" strategy.
+    *
+    *  @deprecated call putBlockList(String, AzureBlob, List&lt;String&gt;) instead
     */
+   @Deprecated
    @Named("PutBlockList")
    @PUT
    @Path("{container}/{name}")
@@ -357,11 +380,25 @@ public interface AzureBlobClient extends Closeable {
          @PathParam("name") String name,
          @BinderParam(BindAzureBlocksToRequest.class) List<String> blockIdList);
 
+   /**
+    *  The Put Block List assembles a list of blocks previously uploaded with Put Block into a single
+    *  blob. Blocks are either already committed to a blob or uncommitted. The blocks ids passed here
+    *  are searched for first in the uncommitted block list; then committed using the "latest" strategy.
+    */
+   @Named("PutBlockList")
+   @PUT
+   @Path("{container}/{name}")
+   @ResponseParser(ParseETagHeader.class)
+   @QueryParams(keys = { "comp" }, values = { "blocklist" })
+   String putBlockList(@PathParam("container") @ParamValidators(ContainerNameValidator.class) String container,
+         @PathParam("name") @ParamParser(BlobName.class) @BinderParam(BindAzureBlobMetadataToMultipartRequest.class) AzureBlob object,
+         @BinderParam(BindAzureBlocksToRequest.class) List<String> blockIdList);
+
    @Named("GetBlockList")
    @GET
    @Path("{container}/{name}")
    @XMLResponseParser(BlobBlocksResultsHandler.class)
-   @QueryParams(keys = { "comp" }, values = { "blocklist" })
+   @QueryParams(keys = { "comp", "blocklisttype" }, values = { "blocklist", "all" })
    ListBlobBlocksResponse getBlockList(
          @PathParam("container") @ParamValidators(ContainerNameValidator.class) String container,
          @PathParam("name") String name);
@@ -380,14 +417,32 @@ public interface AzureBlobClient extends Closeable {
          @PathParam("container") @ParamValidators(ContainerNameValidator.class) String container,
          @PathParam("name") String name);
 
+   @Named("SetBlobProperties")
+   @PUT
+   @Path("{container}/{name}")
+   @QueryParams(keys = { "comp" }, values = { "properties" })
+   @ResponseParser(ParseETagHeader.class)
+   String setBlobProperties(
+         @PathParam("container") @ParamValidators(ContainerNameValidator.class) String container,
+         @PathParam("name") String name,
+         @BinderParam(BindAzureContentMetadataToRequest.class) ContentMetadata contentMetadata);
 
    @Named("SetBlobMetadata")
    @PUT
    @Path("{container}/{name}")
    @QueryParams(keys = { "comp" }, values = { "metadata" })
-   void setBlobMetadata(
+   @ResponseParser(ParseETagHeader.class)
+   String setBlobMetadata(
          @PathParam("container") @ParamValidators(ContainerNameValidator.class) String container,
          @PathParam("name") String name, @BinderParam(BindMapToHeadersWithPrefix.class) Map<String, String> metadata);
+
+   @Named("SetAccessTier")
+   @PUT
+   @Path("{container}/{name}")
+   @QueryParams(keys = { "comp" }, values = { "tier" })
+   void setBlobTier(
+         @PathParam("container") @ParamValidators(ContainerNameValidator.class) String container,
+         @PathParam("name") String name, @HeaderParam("x-ms-access-tier") AccessTier tier);
 
    /**
     * The Delete Blob operation marks the specified blob for deletion. The blob is later deleted
@@ -411,4 +466,16 @@ public interface AzureBlobClient extends Closeable {
          @PathParam("container") @ParamValidators(ContainerNameValidator.class) String container,
          @PathParam("name") String name);
 
+   /**
+    * @throws ContainerNotFoundException if the container is not present.
+    */
+   @Named("CopyBlob")
+   @PUT
+   @Path("{toContainer}/{toName}")
+   @Headers(keys = AzureStorageHeaders.COPY_SOURCE, values = "{copySource}")
+   @ResponseParser(ParseETagHeader.class)
+   String copyBlob(
+         @PathParam("copySource") URI copySource,
+         @PathParam("toContainer") @ParamValidators(ContainerNameValidator.class) String toContainer, @PathParam("toName") String toName,
+         @BinderParam(BindAzureCopyOptionsToRequest.class) CopyBlobOptions options);
 }

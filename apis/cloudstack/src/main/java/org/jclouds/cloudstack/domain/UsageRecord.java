@@ -26,8 +26,8 @@ import org.jclouds.javax.annotation.Nullable;
 
 import com.google.common.base.Function;
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 
@@ -112,8 +112,11 @@ public class UsageRecord {
       protected boolean isSourceNAT;
       protected double rawUsageHours;
       protected String usage;
+      protected Long size;
       protected String type;
       protected UsageType usageType;
+      protected String project;
+      protected String projectId;
 
       /**
        * @see UsageRecord#getId()
@@ -258,6 +261,14 @@ public class UsageRecord {
          this.usage = usage;
          return self();
       }
+      
+      /**
+       * @see UsageRecord#getSize()
+       */
+      public T size(Long size) {
+         this.size = size;
+         return self();
+      }
 
       /**
        * @see UsageRecord#getType()
@@ -275,10 +286,25 @@ public class UsageRecord {
          return self();
       }
 
+      /**
+       * @see UsageRecord#getProject()
+       */
+      public T project(String project) {
+         this.project = project;
+         return self();
+      }
+      
+      /**
+       * @see UsageRecord#getProjectId()
+       */
+      public T projectId(String projectId) {
+         this.projectId = projectId;
+         return self();
+      }
       public UsageRecord build() {
          return new UsageRecord(id, description, accountId, accountName, domainId, startDate, endDate, assignDate, releaseDate,
                zoneId, virtualMachineId, virtualMachineName, serviceOfferingId, templateId, ipAddress, isSourceNAT, rawUsageHours,
-               usage, type, usageType);
+               usage, size, type, usageType, project, projectId);
       }
 
       public T fromUsageRecord(UsageRecord in) {
@@ -301,8 +327,11 @@ public class UsageRecord {
                .isSourceNAT(in.isSourceNAT())
                .rawUsageHours(in.getRawUsageHours())
                .usage(in.getUsage())
+               .size(in.getSize())
                .type(in.getType())
-               .usageType(in.getUsageType());
+               .usageType(in.getUsageType())
+               .project(in.getProject())
+               .projectId(in.getProjectId());
       }
    }
 
@@ -331,19 +360,23 @@ public class UsageRecord {
    private final boolean isSourceNAT;
    private final double rawUsageHours;
    private final String usage;
+   private final Long size;
    private final String type;
    private final UsageType usageType;
+   private final String project;
+   private final String projectId;
 
    @ConstructorProperties({
          "usageid", "description", "accountid", "account", "domainid", "startdate", "enddate", "assigndate", "releasedate",
          "zoneid", "virtualmachineid", "name", "offeringid", "templateid", "ipaddress", "issourcenat", "rawusage", "usage",
-         "type", "usagetype"
+         "size", "type", "usagetype", "project", "projectid"
    })
    protected UsageRecord(String id, @Nullable String description, @Nullable String accountId, @Nullable String accountName,
                          @Nullable String domainId, @Nullable Date startDate, @Nullable Date endDate, @Nullable Date assignDate,
                          @Nullable String releaseDate, @Nullable String zoneId, @Nullable String virtualMachineId, @Nullable String virtualMachineName,
                          @Nullable String serviceOfferingId, @Nullable String templateId, @Nullable String ipAddress,
-                         boolean isSourceNAT, double rawUsageHours, @Nullable String usage, @Nullable String type, @Nullable UsageType usageType) {
+                         boolean isSourceNAT, double rawUsageHours, @Nullable String usage, @Nullable Long size,
+                         @Nullable String type, @Nullable UsageType usageType, @Nullable String project, @Nullable String projectId) {
       this.id = id;
       this.description = description;
       this.accountId = accountId;
@@ -362,8 +395,11 @@ public class UsageRecord {
       this.isSourceNAT = isSourceNAT;
       this.rawUsageHours = rawUsageHours;
       this.usage = usage;
+      this.size = size;
       this.type = type;
       this.usageType = usageType;
+      this.project = project;
+      this.projectId = projectId;
    }
 
    public String getId() {
@@ -452,6 +488,10 @@ public class UsageRecord {
    public String getUsage() {
       return this.usage;
    }
+   
+   public Long getSize() {
+      return this.size;
+   }
 
    @Nullable
    public String getType() {
@@ -462,12 +502,22 @@ public class UsageRecord {
    public UsageType getUsageType() {
       return this.usageType;
    }
+   
+   @Nullable
+   public String getProject() {
+      return this.project;
+   }
+   
+   @Nullable
+   public String getProjectId() {
+      return this.projectId;
+   }
 
    @Override
    public int hashCode() {
       return Objects.hashCode(id, description, accountId, accountName, domainId, startDate, endDate, assignDate, releaseDate,
             zoneId, virtualMachineId, virtualMachineName, serviceOfferingId, templateId, ipAddress, isSourceNAT, rawUsageHours,
-            usage, type, usageType);
+            size, usage, type, usageType, project, projectId);
    }
 
    @Override
@@ -493,8 +543,11 @@ public class UsageRecord {
             && Objects.equal(this.isSourceNAT, that.isSourceNAT)
             && Objects.equal(this.rawUsageHours, that.rawUsageHours)
             && Objects.equal(this.usage, that.usage)
+            && Objects.equal(this.size, that.size)
             && Objects.equal(this.type, that.type)
-            && Objects.equal(this.usageType, that.usageType);
+            && Objects.equal(this.usageType, that.usageType)
+            && Objects.equal(this.project, that.project)
+            && Objects.equal(this.projectId, that.projectId);
    }
 
    protected ToStringHelper string() {
@@ -504,7 +557,7 @@ public class UsageRecord {
             .add("releaseDate", releaseDate).add("zoneId", zoneId).add("virtualMachineId", virtualMachineId)
             .add("virtualMachineName", virtualMachineName).add("serviceOfferingId", serviceOfferingId).add("templateId", templateId)
             .add("ipAddress", ipAddress).add("isSourceNAT", isSourceNAT).add("rawUsageHours", rawUsageHours).add("usage", usage)
-            .add("type", type).add("usageType", usageType);
+            .add("size", size).add("type", type).add("usageType", usageType).add("project", project).add("projectId", projectId);
    }
 
    @Override

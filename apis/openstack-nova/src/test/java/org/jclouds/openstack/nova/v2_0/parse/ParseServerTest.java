@@ -16,6 +16,9 @@
  */
 package org.jclouds.openstack.nova.v2_0.parse;
 
+import static org.jclouds.openstack.nova.v2_0.domain.Address.createV4;
+import static org.jclouds.openstack.nova.v2_0.domain.Address.createV6;
+
 import java.net.URI;
 
 import javax.ws.rs.Consumes;
@@ -38,9 +41,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
-
-import static org.jclouds.openstack.nova.v2_0.domain.Address.createV4;
-import static org.jclouds.openstack.nova.v2_0.domain.Address.createV6;
 
 @Test(groups = "unit", testName = "ParseServerTest")
 public class ParseServerTest extends BaseItemParserTest<Server> {
@@ -65,8 +65,9 @@ public class ParseServerTest extends BaseItemParserTest<Server> {
             .hostId("e4d909c290d0fb1ca068ffaddf22cbd0")
             .accessIPv4("67.23.10.132")
             .accessIPv6("::babe:67.23.10.132")
-            .status(Status.BUILD)
+            .status(Status.ACTIVE)
             .diskConfig(Server.DISK_CONFIG_AUTO)
+            .availabilityZone("nova")
             .image(
                   Resource
                         .builder()
@@ -78,8 +79,10 @@ public class ParseServerTest extends BaseItemParserTest<Server> {
                                     URI.create("http://servers.api.openstack.org/v2/1234/images/52415800-8b69-11e0-9b19-734f6f006e54")),
                               Link.create(
                                     Relation.BOOKMARK,
-                                    URI.create("http://servers.api.openstack.org/1234/images/52415800-8b69-11e0-9b19-734f6f006e54")))
-                        .build())
+                                    URI.create("http://servers.api.openstack.org/1234/images/52415800-8b69-11e0-9b19-734f6f006e54"))
+                        )
+                        .build()
+            )
             .flavor(
                   Resource
                         .builder()
@@ -91,20 +94,24 @@ public class ParseServerTest extends BaseItemParserTest<Server> {
                                     URI.create("http://servers.api.openstack.org/v2/1234/flavors/52415800-8b69-11e0-9b19-734f216543fd")),
                               Link.create(
                                     Relation.BOOKMARK,
-                                    URI.create("http://servers.api.openstack.org/1234/flavors/52415800-8b69-11e0-9b19-734f216543fd")))
-                        .build())
+                                    URI.create("http://servers.api.openstack.org/1234/flavors/52415800-8b69-11e0-9b19-734f216543fd"))
+                        )
+                        .build()
+            )
             .metadata(
                   new ImmutableMap.Builder<String, String>().put("Server Label", "Web Head 1")
-                        .put("Image Version", "2.1").build())
+                        .put("Image Version", "2.1").build()
+            )
             .addresses(ImmutableMultimap.<String, Address>builder()
                   .putAll("public", createV4("67.23.10.132"), createV6("::babe:67.23.10.132"), createV4("67.23.10.131"), createV6("::babe:4317:0A83"))
                   .putAll("private", createV4("10.176.42.16"), createV6("::babe:10.176.42.16"))
                   .build())
             .links(Link.create(
                         Relation.SELF, URI.create("http://servers.api.openstack.org/v2/1234/servers/71752")),
-                   Link.create(
+                  Link.create(
                         Relation.BOOKMARK,
-                        URI.create("http://servers.api.openstack.org/1234/servers/71752")))
+                        URI.create("http://servers.api.openstack.org/1234/servers/71752"))
+            )
             .build();
    }
 

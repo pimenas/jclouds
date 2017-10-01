@@ -25,8 +25,8 @@ import javax.inject.Named;
 import org.jclouds.javax.annotation.Nullable;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 
 /**
  * A Floating IP is an IP address that can be created and associated with a

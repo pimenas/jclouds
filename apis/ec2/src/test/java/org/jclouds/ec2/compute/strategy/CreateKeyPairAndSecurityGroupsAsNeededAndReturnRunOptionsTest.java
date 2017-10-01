@@ -20,12 +20,12 @@ import static com.google.common.io.BaseEncoding.base64;
 import static org.easymock.EasyMock.anyObject;
 import static org.easymock.EasyMock.createMock;
 import static org.easymock.EasyMock.expect;
+import static org.easymock.EasyMock.partialMockBuilder;
 import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.testng.Assert.assertEquals;
 
 import javax.inject.Provider;
-import java.lang.reflect.Method;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
@@ -103,16 +103,20 @@ public class CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptionsTest {
       Set<String> generatedGroups = ImmutableSet.of(generatedGroup);
 
       // create mocks
-      CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions strategy = createMock(
-            CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions.class,
-            new Method[] {
+      CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions strategy = partialMockBuilder(
+            CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions.class)
+            .addMockedMethod(
                   CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions.class
-                        .getDeclaredMethod("getOptionsProvider"),
+                        .getDeclaredMethod("getOptionsProvider"))
+            .addMockedMethod(
                   CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions.class.getDeclaredMethod(
                         "createNewKeyPairUnlessUserSpecifiedOtherwise", String.class, String.class,
-                        TemplateOptions.class),
+                        TemplateOptions.class))
+            .addMockedMethod(
                   CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions.class.getDeclaredMethod(
-                        "getSecurityGroupsForTagAndOptions", String.class, String.class, TemplateOptions.class) });
+                        "getSecurityGroupsForTagAndOptions", String.class, String.class, String.class,
+                        TemplateOptions.class))
+            .createMock();
 
       EC2TemplateOptions options = createMock(EC2TemplateOptions.class);
       Template template = createMock(Template.class);
@@ -124,7 +128,7 @@ public class CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptionsTest {
       expect(options.getBlockDeviceMappings()).andReturn(ImmutableSet.<BlockDeviceMapping> of()).atLeastOnce();
       expect(strategy.createNewKeyPairUnlessUserSpecifiedOtherwise(region, group, options)).andReturn(
             systemGeneratedKeyPairName);
-      expect(strategy.getSecurityGroupsForTagAndOptions(region, group, options)).andReturn(generatedGroups);
+      expect(strategy.getSecurityGroupsForTagAndOptions(region, group, null, options)).andReturn(generatedGroups);
       expect(options.getUserData()).andReturn(null);
       expect(options.getClientToken()).andReturn(null);
 
@@ -159,16 +163,20 @@ public class CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptionsTest {
       Set<String> generatedGroups = ImmutableSet.of(generatedGroup);
 
       // create mocks
-      CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions strategy = createMock(
-            CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions.class,
-            new Method[] {
+      CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions strategy = partialMockBuilder(
+            CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions.class)
+            .addMockedMethod(
                   CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions.class
-                        .getDeclaredMethod("getOptionsProvider"),
+                        .getDeclaredMethod("getOptionsProvider"))
+            .addMockedMethod(
                   CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions.class.getDeclaredMethod(
                         "createNewKeyPairUnlessUserSpecifiedOtherwise", String.class, String.class,
-                        TemplateOptions.class),
+                        TemplateOptions.class))
+            .addMockedMethod(
                   CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions.class.getDeclaredMethod(
-                        "getSecurityGroupsForTagAndOptions", String.class, String.class, TemplateOptions.class) });
+                        "getSecurityGroupsForTagAndOptions", String.class, String.class, String.class,
+                        TemplateOptions.class))
+            .createMock();
 
       EC2TemplateOptions options = createMock(EC2TemplateOptions.class);
       Template template = createMock(Template.class);
@@ -181,7 +189,7 @@ public class CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptionsTest {
       expect(options.getClientToken()).andReturn("some-token");
       expect(strategy.createNewKeyPairUnlessUserSpecifiedOtherwise(region, group, options)).andReturn(
             systemGeneratedKeyPairName);
-      expect(strategy.getSecurityGroupsForTagAndOptions(region, group, options)).andReturn(generatedGroups);
+      expect(strategy.getSecurityGroupsForTagAndOptions(region, group, null, options)).andReturn(generatedGroups);
       expect(options.getUserData()).andReturn("hello".getBytes());
 
       // replay mocks
@@ -426,15 +434,15 @@ public class CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptionsTest {
       expect(options.getGroups()).andReturn(groupIds).atLeastOnce();
       expect(options.getInboundPorts()).andReturn(ports).atLeastOnce();
       RegionNameAndIngressRules regionNameAndIngressRules = new RegionNameAndIngressRules(region, generatedMarkerGroup,
-            ports, shouldAuthorizeSelf);
-      expect(strategy.securityGroupMap.getUnchecked(regionNameAndIngressRules)).andReturn(group);
+            ports, shouldAuthorizeSelf, null);
+      expect(strategy.securityGroupMap.getUnchecked(regionNameAndIngressRules)).andReturn(generatedMarkerGroup);
 
       // replay mocks
       replay(options);
       replayStrategy(strategy);
 
       // run
-      assertEquals(strategy.getSecurityGroupsForTagAndOptions(region, group, options), returnVal);
+      assertEquals(strategy.getSecurityGroupsForTagAndOptions(region, group, null, options), returnVal);
 
       // verify mocks
       verify(options);
@@ -460,7 +468,7 @@ public class CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptionsTest {
       expect(options.getGroups()).andReturn(groupIds).atLeastOnce();
       expect(options.getInboundPorts()).andReturn(ports).atLeastOnce();
       RegionNameAndIngressRules regionNameAndIngressRules = new RegionNameAndIngressRules(region, generatedMarkerGroup,
-            ports, shouldAuthorizeSelf);
+            ports, shouldAuthorizeSelf, null);
       expect(strategy.securityGroupMap.getUnchecked(regionNameAndIngressRules)).andReturn(generatedMarkerGroup);
 
       // replay mocks
@@ -468,7 +476,7 @@ public class CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptionsTest {
       replayStrategy(strategy);
 
       // run
-      assertEquals(strategy.getSecurityGroupsForTagAndOptions(region, group, options), returnVal);
+      assertEquals(strategy.getSecurityGroupsForTagAndOptions(region, group, null, options), returnVal);
 
       // verify mocks
       verify(options);
@@ -494,7 +502,7 @@ public class CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptionsTest {
       expect(options.getGroups()).andReturn(groupIds).atLeastOnce();
       expect(options.getInboundPorts()).andReturn(ports).atLeastOnce();
       RegionNameAndIngressRules regionNameAndIngressRules = new RegionNameAndIngressRules(region, generatedMarkerGroup,
-            ports, shouldAuthorizeSelf);
+            ports, shouldAuthorizeSelf, null);
       expect(strategy.securityGroupMap.getUnchecked(regionNameAndIngressRules)).andReturn(generatedMarkerGroup);
 
       // replay mocks
@@ -502,23 +510,19 @@ public class CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptionsTest {
       replayStrategy(strategy);
 
       // run
-      assertEquals(strategy.getSecurityGroupsForTagAndOptions(region, group, options), returnVal);
+      assertEquals(strategy.getSecurityGroupsForTagAndOptions(region, group, null, options), returnVal);
 
       // verify mocks
       verify(options);
       verifyStrategy(strategy);
    }
 
-   public void testGetSecurityGroupsForTagAndOptions_reusesGroupByDefaultWhenNoPortsAreSpecifiedWhenDoesExistAndAcceptsUserSuppliedGroups() {
+   public void testGetSecurityGroupsForTagAndOptions_DoesNorReuseGroupByDefaultWhenNoPortsAreSpecifiedWhenDoesExistAndAcceptsUserSuppliedGroups() {
       // setup constants
       String region = Region.AP_SOUTHEAST_1;
       String group = "group";
-      String generatedMarkerGroup = "jclouds#group";
       Set<String> groupIds = ImmutableSet.<String> of("group1", "group2");
-      int[] ports = {};
-      boolean shouldAuthorizeSelf = true;
-      boolean groupExisted = true;
-      Set<String> returnVal = ImmutableSet.<String> of(generatedMarkerGroup, "group1", "group2");
+      Set<String> returnVal = ImmutableSet.<String> of("group1", "group2");
 
       // create mocks
       CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptions strategy = setupStrategy();
@@ -526,18 +530,13 @@ public class CreateKeyPairAndSecurityGroupsAsNeededAndReturnRunOptionsTest {
 
       // setup expectations
       expect(options.getGroups()).andReturn(groupIds).atLeastOnce();
-      RegionNameAndIngressRules regionNameAndIngressRules = new RegionNameAndIngressRules(region, generatedMarkerGroup,
-            ports, shouldAuthorizeSelf);
-
-      expect(strategy.securityGroupMap.getUnchecked(regionNameAndIngressRules))
-            .andReturn(groupExisted ? "group" : null);
 
       // replay mocks
       replay(options);
       replayStrategy(strategy);
 
       // run
-      assertEquals(strategy.getSecurityGroupsForTagAndOptions(region, group, options), returnVal);
+      assertEquals(strategy.getSecurityGroupsForTagAndOptions(region, group, null, options), returnVal);
 
       // verify mocks
       verify(options);

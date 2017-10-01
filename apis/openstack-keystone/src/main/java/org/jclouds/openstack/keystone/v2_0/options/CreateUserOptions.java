@@ -28,14 +28,14 @@ import org.jclouds.rest.MapBinder;
 import org.jclouds.rest.binders.BindToJsonPayload;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.collect.ImmutableMap;
 
 public class CreateUserOptions implements MapBinder{
    @Inject
    private BindToJsonPayload jsonBinder;
-   
+
    private String tenant;
    private String password;
    private String email;
@@ -76,7 +76,7 @@ public class CreateUserOptions implements MapBinder{
 
    static class ServerRequest {
       final String name;
-      String tenant;
+      String tenantId;
       String password;
       String email;
       boolean enabled;
@@ -98,10 +98,10 @@ public class CreateUserOptions implements MapBinder{
       if (password != null)
          user.password = password;
       if (tenant != null)
-         user.tenant = tenant;
+         user.tenantId = tenant;
       user.enabled = enabled;
 
-      return bindToRequest(request, ImmutableMap.of("user", user));
+      return bindToRequest(request, (Object) ImmutableMap.of("user", user));
    }
 
    /**

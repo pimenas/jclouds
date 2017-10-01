@@ -23,8 +23,8 @@ import java.beans.ConstructorProperties;
 import org.jclouds.javax.annotation.Nullable;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 
 /**
  * A container used to group or isolate resources and/or identity objects.

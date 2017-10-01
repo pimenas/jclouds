@@ -47,11 +47,11 @@ import org.jclouds.compute.extensions.ImageExtension;
 import org.jclouds.compute.extensions.SecurityGroupExtension;
 import org.jclouds.compute.functions.CreateSshClientOncePortIsListeningOnNode;
 import org.jclouds.compute.functions.DefaultCredentialsFromImageOrOverridingCredentials;
-import org.jclouds.compute.functions.TemplateOptionsToStatement;
 import org.jclouds.compute.options.RunScriptOptions;
 import org.jclouds.compute.options.TemplateOptions;
 import org.jclouds.compute.reference.ComputeServiceConstants;
 import org.jclouds.compute.strategy.CustomizeNodeAndAddToGoodMapOrPutExceptionIntoBadMap;
+import org.jclouds.compute.strategy.GetImageStrategy;
 import org.jclouds.compute.strategy.InitializeRunScriptOnNodeOrPlaceInBadMap;
 import org.jclouds.compute.suppliers.ImageCacheSupplier;
 import org.jclouds.config.ValueOfConfigurationKeyOrNull;
@@ -71,8 +71,10 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.inject.AbstractModule;
+import com.google.inject.Binding;
 import com.google.inject.Inject;
 import com.google.inject.Injector;
+import com.google.inject.Key;
 import com.google.inject.Provides;
 import com.google.inject.TypeLiteral;
 import com.google.inject.assistedinject.FactoryModuleBuilder;
@@ -86,13 +88,11 @@ public abstract class BaseComputeServiceContextModule extends AbstractModule {
       install(new ComputeServiceTimeoutsModule());
       bind(new TypeLiteral<Function<NodeMetadata, SshClient>>() {
       }).to(CreateSshClientOncePortIsListeningOnNode.class);
-      bind(new TypeLiteral<Function<TemplateOptions, Statement>>() {
-      }).to(TemplateOptionsToStatement.class);
       bind(LoginCredentials.class).annotatedWith(Names.named("image")).toProvider(
             GetLoginForProviderFromPropertiesAndStoreCredentialsOrReturnNull.class);
-      
+
       bindCredentialsOverriderFunction();
-      
+
       install(new FactoryModuleBuilder()
             .implement(RunScriptOnNodeUsingSsh.class, Names.named("direct"), RunScriptOnNodeUsingSsh.class)
             .implement(RunScriptOnNodeAsInitScriptUsingSshAndBlockUntilComplete.class, Names.named("blocking"),
@@ -112,9 +112,6 @@ public abstract class BaseComputeServiceContextModule extends AbstractModule {
       }, InitializeRunScriptOnNodeOrPlaceInBadMap.class).build(InitializeRunScriptOnNodeOrPlaceInBadMap.Factory.class));
 
       install(new FactoryModuleBuilder().build(BlockUntilInitScriptStatusIsZeroThenReturnOutput.Factory.class));
-
-      bind(new TypeLiteral<Supplier<Set<? extends Image>>>() {
-      }).annotatedWith(Memoized.class).to(ImageCacheSupplier.class);
    }
 
    protected void bindCredentialsOverriderFunction() {
@@ -168,7 +165,7 @@ public abstract class BaseComputeServiceContextModule extends AbstractModule {
 
    @Provides
    @Singleton
-   public Map<OsFamily, Map<String, String>> provideOsVersionMap(ComputeServiceConstants.ReferenceData data, Json json) {
+   public final Map<OsFamily, Map<String, String>> provideOsVersionMap(ComputeServiceConstants.ReferenceData data, Json json) {
       return json.fromJson(data.osVersionMapJson, new TypeLiteral<Map<OsFamily, Map<String, String>>>() {
       }.getType());
    }
@@ -178,7 +175,7 @@ public abstract class BaseComputeServiceContextModule extends AbstractModule {
     */
    @Provides
    @Named("DEFAULT")
-   protected TemplateBuilder provideTemplateOptionallyFromProperties(Injector injector, TemplateBuilder template,
+   protected final TemplateBuilder provideTemplateOptionallyFromProperties(Injector injector, TemplateBuilder template,
          @Provider String provider, ValueOfConfigurationKeyOrNull config) {
       String templateString = config.apply(provider + ".template");
       if (templateString == null)
@@ -195,25 +192,33 @@ public abstract class BaseComputeServiceContextModule extends AbstractModule {
          template.imageId(imageId);
       return template;
    }
-   
+
    @Provides
    @Singleton
+   protected final Map<OsFamily, LoginCredentials> provideOsFamilyToCredentials(Injector injector) {
+      return osFamilyToCredentials(injector);
+   }
+
    protected Map<OsFamily, LoginCredentials> osFamilyToCredentials(Injector injector) {
       return ImmutableMap.of(OsFamily.WINDOWS, LoginCredentials.builder().user("Administrator").build());
    }
-   
+
    /**
     * The default options if none are provided.
     */
    @Provides
    @Named("DEFAULT")
+   protected final TemplateOptions guiceProvideTemplateOptions(Injector injector, TemplateOptions options) {
+      return provideTemplateOptions(injector, options);
+   }
+
    protected TemplateOptions provideTemplateOptions(Injector injector, TemplateOptions options) {
       return options;
    }
 
    @Provides
    @Singleton
-   protected Supplier<Map<String, ? extends Image>> provideImageMap(@Memoized Supplier<Set<? extends Image>> images) {
+   protected final Supplier<Map<String, ? extends Image>> provideImageMap(@Memoized Supplier<Set<? extends Image>> images) {
       return Suppliers.compose(new Function<Set<? extends Image>, Map<String, ? extends Image>>() {
 
          @Override
@@ -233,37 +238,29 @@ public abstract class BaseComputeServiceContextModule extends AbstractModule {
 
    @Provides
    @Singleton
-   @Named("imageCache")
-   protected Supplier<Set<? extends Image>> supplyImageCache(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
-         final Supplier<Set<? extends Image>> imageSupplier, Injector injector) {
-      if (shouldEagerlyParseImages(injector)) {
-         return supplyImageCache(authException, seconds, imageSupplier);
-      } else {
-         return supplyNonParsingImageCache(authException, seconds, imageSupplier, injector);
-      }
+   @Memoized
+   protected final Supplier<Set<? extends Image>> supplyImageCache(
+         AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
+         final Supplier<Set<? extends Image>> imageSupplier, com.google.inject.Provider<GetImageStrategy> imageLoader, Injector injector) {
+      Supplier<Set<? extends Image>> parsingImageSupplier = shouldEagerlyParseImages(injector) ? imageSupplier
+            : supplyNonParsingImages(imageSupplier, injector);
+      return new ImageCacheSupplier(parsingImageSupplier, seconds, authException, imageLoader);
    }
 
    protected boolean shouldEagerlyParseImages(Injector injector) {
       return true;
    }
 
-   protected Supplier<Set<? extends Image>> supplyImageCache(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
-         final Supplier<Set<? extends Image>> imageSupplier) {
-      return MemoizedRetryOnTimeOutButNotOnAuthorizationExceptionSupplier.create(authException, imageSupplier, seconds,
-               TimeUnit.SECONDS);
-   }
-
    /**
-    * For overriding; default impl is same as {@link supplyImageCache(seconds, imageSupplier)}
+    * For overriding; default impl just returns the image supplier.
     */
-   protected Supplier<Set<? extends Image>> supplyNonParsingImageCache(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
-            final Supplier<Set<? extends Image>> imageSupplier, Injector injector) {
-      return supplyImageCache(authException, seconds, imageSupplier);
+   protected Supplier<Set<? extends Image>> supplyNonParsingImages(final Supplier<Set<? extends Image>> imageSupplier, Injector injector) {
+      return imageSupplier;
    }
 
    @Provides
    @Singleton
-   protected Supplier<Map<String, ? extends Hardware>> provideSizeMap(@Memoized Supplier<Set<? extends Hardware>> sizes) {
+   protected final Supplier<Map<String, ? extends Hardware>> provideSizeMap(@Memoized Supplier<Set<? extends Hardware>> sizes) {
       return Suppliers.compose(new Function<Set<? extends Hardware>, Map<String, ? extends Hardware>>() {
 
          @Override
@@ -284,7 +281,7 @@ public abstract class BaseComputeServiceContextModule extends AbstractModule {
    @Provides
    @Singleton
    @Memoized
-   protected Supplier<Set<? extends Hardware>> supplySizeCache(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
+   protected final Supplier<Set<? extends Hardware>> supplySizeCache(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
          final Supplier<Set<? extends Hardware>> hardwareSupplier) {
       return MemoizedRetryOnTimeOutButNotOnAuthorizationExceptionSupplier.create(authException, hardwareSupplier,
                seconds, TimeUnit.SECONDS);
@@ -292,7 +289,7 @@ public abstract class BaseComputeServiceContextModule extends AbstractModule {
 
    @Provides
    @Singleton
-   protected Function<ComputeMetadata, String> indexer() {
+   protected final Function<ComputeMetadata, String> indexer() {
       return new Function<ComputeMetadata, String>() {
          @Override
          public String apply(ComputeMetadata from) {
@@ -300,18 +297,26 @@ public abstract class BaseComputeServiceContextModule extends AbstractModule {
          }
       };
    }
-   
-   @Provides
-   @Singleton
-   protected Optional<ImageExtension> provideImageExtension(Injector i) {
-      return Optional.absent();
-   }
-   
-   @Provides
-   @Singleton
-   protected Optional<SecurityGroupExtension> provideSecurityGroupExtension(Injector i) {
-      return Optional.absent();
-   }
-   
 
+   @Provides
+   @Singleton
+   public final Optional<ImageExtension> guiceProvideImageExtension(Injector i) {
+      return provideImageExtension(i);
+   }
+
+   @Provides
+   @Singleton
+   protected final Optional<SecurityGroupExtension> guiceProvideSecurityGroupExtension(Injector i) {
+      return provideSecurityGroupExtension(i);
+   }
+
+   protected Optional<ImageExtension> provideImageExtension(Injector i) {
+      Binding<ImageExtension> binding = i.getExistingBinding(Key.get(ImageExtension.class));
+      return binding == null ? Optional.<ImageExtension> absent() : Optional.of(binding.getProvider().get());
+   }
+
+   protected Optional<SecurityGroupExtension> provideSecurityGroupExtension(Injector i) {
+      Binding<SecurityGroupExtension> binding = i.getExistingBinding(Key.get(SecurityGroupExtension.class));
+      return binding == null ? Optional.<SecurityGroupExtension> absent() : Optional.of(binding.getProvider().get());
+   }
 }

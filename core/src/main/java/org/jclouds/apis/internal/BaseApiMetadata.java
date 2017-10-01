@@ -18,7 +18,9 @@ package org.jclouds.apis.internal;
 
 import static com.google.common.base.Objects.equal;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static org.jclouds.Constants.PROPERTY_CONNECTION_CLOSE_HEADER;
 import static org.jclouds.Constants.PROPERTY_CONNECTION_TIMEOUT;
+import static org.jclouds.Constants.PROPERTY_IDEMPOTENT_METHODS;
 import static org.jclouds.Constants.PROPERTY_ISO3166_CODES;
 import static org.jclouds.Constants.PROPERTY_MAX_CONNECTIONS_PER_CONTEXT;
 import static org.jclouds.Constants.PROPERTY_MAX_CONNECTIONS_PER_HOST;
@@ -31,6 +33,7 @@ import static org.jclouds.Constants.PROPERTY_SESSION_INTERVAL;
 import static org.jclouds.Constants.PROPERTY_SO_TIMEOUT;
 import static org.jclouds.Constants.PROPERTY_STRIP_EXPECT_HEADER;
 import static org.jclouds.Constants.PROPERTY_USER_THREADS;
+import static org.jclouds.Constants.PROPERTY_USER_AGENT;
 import static org.jclouds.reflect.Reflection2.typeToken;
 
 import java.net.URI;
@@ -38,12 +41,13 @@ import java.util.Properties;
 import java.util.Set;
 
 import org.jclouds.Context;
+import org.jclouds.JcloudsVersion;
 import org.jclouds.View;
 import org.jclouds.apis.ApiMetadata;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.reflect.TypeToken;
@@ -74,10 +78,17 @@ public abstract class BaseApiMetadata implements ApiMetadata {
       props.setProperty(PROPERTY_SESSION_INTERVAL, 60 + "");
       props.setProperty(PROPERTY_PRETTY_PRINT_PAYLOADS, "true");
       props.setProperty(PROPERTY_STRIP_EXPECT_HEADER, "false");
+      props.setProperty(PROPERTY_USER_AGENT,
+			String.format("jclouds/%s java/%s",
+                                       JcloudsVersion.get(),
+                                       System.getProperty("java.version")));
+      props.setProperty(PROPERTY_CONNECTION_CLOSE_HEADER, "false");
 
       // By default, we allow maximum parallel deletes to be equal to the number
       // of user threads since one thread is used to delete on blob.
       props.setProperty(PROPERTY_MAX_PARALLEL_DELETES, numUserThreads + "");
+
+      props.setProperty(PROPERTY_IDEMPOTENT_METHODS, "DELETE,GET,HEAD,OPTIONS,PUT");
       return props;
    }
 

@@ -21,21 +21,19 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.Closeable;
 
-import javax.inject.Singleton;
-
 import org.jclouds.Context;
 import org.jclouds.View;
 import org.jclouds.location.Provider;
 import org.jclouds.rest.ApiContext;
+import org.jclouds.util.TypeTokenUtils;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.collect.ForwardingObject;
 import com.google.common.reflect.TypeParameter;
 import com.google.common.reflect.TypeToken;
 
-@Singleton
 public abstract class BaseView extends ForwardingObject implements View {
 
    private final Context backend;
@@ -49,7 +47,7 @@ public abstract class BaseView extends ForwardingObject implements View {
    @SuppressWarnings("unchecked")
    @Override
    public <C extends Context> C unwrap(TypeToken<C> type) {
-      checkArgument(checkNotNull(type, "type").isAssignableFrom(backendType), "backend type: %s not assignable to %s", backendType, type);
+      checkArgument(TypeTokenUtils.isSupertypeOf(checkNotNull(type, "type"), backendType), "%s is not a supertype of backend type %s", type, backendType);
       return (C) backend;
    }
    

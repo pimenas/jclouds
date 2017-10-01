@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.jclouds.blobstore.options.ListContainerOptions;
 
 import com.google.common.base.Function;
+import com.google.common.base.Strings;
 
 public class ToListContainerOptions implements
       Function<ListContainerOptions, org.jclouds.openstack.swift.v1.options.ListContainerOptions> {
@@ -28,18 +29,31 @@ public class ToListContainerOptions implements
    @Override
    public org.jclouds.openstack.swift.v1.options.ListContainerOptions apply(ListContainerOptions from) {
       checkNotNull(from, "set options to instance NONE instead of passing null");
+      if (from.getDir() != null && from.getPrefix() != null) {
+         throw new IllegalArgumentException("Cannot set both directory and prefix");
+      }
+      if ((from.getDir() != null || from.isRecursive()) && (from.getDelimiter() != null)) {
+         throw new IllegalArgumentException("Cannot set both delimiter and recursive or directory");
+      }
       org.jclouds.openstack.swift.v1.options.ListContainerOptions options = new org.jclouds.openstack.swift.v1.options.ListContainerOptions();
-      if ((from.getDir() == null) && (from.isRecursive())) {
-         options.prefix("");
+
+      if (from.getDir() != null) {
+         if (from.isRecursive()) {
+            options.prefix(from.getDir().endsWith("/") ? from.getDir() : from.getDir() + "/");
+         } else {
+            options.path(from.getDir());
+         }
+      } else if (!from.isRecursive()) {
+         options.delimiter('/');
       }
-      if ((from.getDir() == null) && (!from.isRecursive())) {
-         options.path("");
+      if (!Strings.isNullOrEmpty(from.getDelimiter())) {
+         if (from.getDelimiter().length() != 1) {
+            throw new IllegalArgumentException("Delimiter must be a single character");
+         }
+         options.delimiter(from.getDelimiter().charAt(0));
       }
-      if ((from.getDir() != null) && (from.isRecursive())) {
-         options.prefix(from.getDir().endsWith("/") ? from.getDir() : from.getDir() + "/");
-      }
-      if ((from.getDir() != null) && (!from.isRecursive())) {
-         options.path(from.getDir());
+      if (from.getPrefix() != null) {
+         options.prefix(from.getPrefix());
       }
       if (from.getMarker() != null) {
          options.marker(from.getMarker());

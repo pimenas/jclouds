@@ -16,9 +16,10 @@
  */
 package org.jclouds.openstack.nova.v2_0.domain;
 
-import com.google.common.base.Objects;
-
 import java.beans.ConstructorProperties;
+
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 
 /**
  * A pool that holds a collection of floating IP's that can be allocated from it.
@@ -83,8 +84,8 @@ public class FloatingIPPool implements Comparable<FloatingIPPool> {
       return Objects.equal(this.name, that.name);
    }
 
-   protected Objects.ToStringHelper string() {
-      return Objects.toStringHelper(this)
+   protected MoreObjects.ToStringHelper string() {
+      return MoreObjects.toStringHelper(this)
             .add("name", name);
    }
 

@@ -121,7 +121,7 @@ function ensure_hostname_in_hosts() {
     local ipaddr=`hostname -i`
   }
   # NOTE: we blindly trust existing hostname settings in /etc/hosts
-  egrep -q `hostname` /etc/hosts || echo "$ipaddr `hostname`" >> /etc/hosts
+  egrep -q `hostname -s` /etc/hosts || echo "$ipaddr `hostname -f` `hostname -s`" >> /etc/hosts
 }
 
 # download locations for many services are at public dns
@@ -159,7 +159,7 @@ END_OF_JCLOUDS_FILE
 function findOpenJDK() {
   local oldJavaHome=$JAVA_HOME
   unset JAVA_HOME
-  for CANDIDATE in $oldJavaHome `ls -d /usr/lib/jvm/java-1.6.0-openjdk-* /usr/lib/jvm/java-6-openjdk-* /usr/lib/jvm/java-6-openjdk 2>&-`; do
+  for CANDIDATE in $oldJavaHome `ls -d /usr/lib/jvm/java-*-openjdk* 2>&-`; do
     if [ -n "$CANDIDATE" -a -x "$CANDIDATE/bin/java" ]; then
       export JAVA_HOME=$CANDIDATE
       break
@@ -177,9 +177,14 @@ function installOpenJDK() {
     echo reusing JAVA_HOME $JAVA_HOME
   else
     if which dpkg &> /dev/null; then
-      apt-get-update && apt-get-install openjdk-6-jdk
+      apt-get-update && \
+          PACKAGE=$(apt-cache search --names-only '^openjdk-.-jdk$' | sort -r | cut -d' ' -f1 | head -1) && \
+          [ ! -z "$PACKAGE" ] && \
+          {  apt-get-install $PACKAGE-headless || apt-get-install $PACKAGE; }
     elif which rpm &> /dev/null; then
-      yum-install java-1.6.0-openjdk-devel
+      PACKAGE=$(repoquery --qf='%{name}' --pkgnarrow=available 'java-*-openjdk-devel' | sort -r | head -1) && \
+        [ ! -z "$PACKAGE" ] && \
+        yum-install $PACKAGE
     else
       abort "we only support apt-get and yum right now... please contribute"
     fi
@@ -204,23 +209,27 @@ END_OF_JCLOUDS_SCRIPT
 	rm -f $INSTANCE_HOME/rc
 	trap 'echo $?>$INSTANCE_HOME/rc' 0 1 2 3 15
 	cat > /etc/sudoers <<-'END_OF_JCLOUDS_FILE'
+		Defaults    env_reset
+		Defaults    secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 		root ALL = (ALL) ALL
 		%wheel ALL = (ALL) NOPASSWD:ALL
 	END_OF_JCLOUDS_FILE
 	chmod 0440 /etc/sudoers
 	mkdir -p /home/users
-	groupadd -f wheel
+	chmod 0755 /home/users
+	getent group wheel || groupadd -f wheel
 	useradd -c 'defaultAdminUsername' -s /bin/bash -g wheel -m  -d /home/users/defaultAdminUsername -p 'crypt(randompassword)' defaultAdminUsername
 	mkdir -p /home/users/defaultAdminUsername/.ssh
 	cat >> /home/users/defaultAdminUsername/.ssh/authorized_keys <<-'END_OF_JCLOUDS_FILE'
 		publicKey
 	END_OF_JCLOUDS_FILE
 	chmod 600 /home/users/defaultAdminUsername/.ssh/authorized_keys
+	chown -R defaultAdminUsername /home/users/defaultAdminUsername/.ssh
 	chown -R defaultAdminUsername /home/users/defaultAdminUsername
 	exec 3<> /etc/ssh/sshd_config && awk -v TEXT="PasswordAuthentication no
 	PermitRootLogin no
 	" 'BEGIN {print TEXT}{print}' /etc/ssh/sshd_config >&3
-	hash service 2>&- && service ssh reload 2>&- || /etc/init.d/ssh* reload
+	hash service 2>&- && service ssh reload 2>&- || service sshd reload 2>&- || /etc/init.d/ssh* reload
 	awk -v user=^${SUDO_USER:=${USER}}: -v password='crypt(randompassword)' 'BEGIN { FS=OFS=":" } $0 ~ user { $2 = password } 1' /etc/shadow >/etc/shadow.${SUDO_USER:=${USER}}
 	test -f /etc/shadow.${SUDO_USER:=${USER}} && mv /etc/shadow.${SUDO_USER:=${USER}} /etc/shadow
 	setupPublicCurl || return 1

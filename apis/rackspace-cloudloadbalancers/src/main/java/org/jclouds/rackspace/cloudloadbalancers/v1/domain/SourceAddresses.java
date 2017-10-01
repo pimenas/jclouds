@@ -17,8 +17,8 @@
 package org.jclouds.rackspace.cloudloadbalancers.v1.domain;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 
 /**
  * The load balancer source IP addresses are useful for customers who are automating the deployment of infrastructure 

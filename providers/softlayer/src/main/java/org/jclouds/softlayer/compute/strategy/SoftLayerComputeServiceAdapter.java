@@ -21,21 +21,20 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.Iterables.contains;
 import static com.google.common.collect.Iterables.filter;
-import static com.google.common.collect.Iterables.find;
 import static com.google.common.collect.Iterables.get;
 import static com.google.common.collect.Iterables.tryFind;
 import static java.lang.Math.round;
 import static java.lang.String.format;
-import static org.jclouds.compute.domain.Volume.Type;
 import static org.jclouds.compute.util.ComputeServiceUtils.getCores;
 import static org.jclouds.compute.util.ComputeServiceUtils.getSpace;
-import static org.jclouds.softlayer.reference.SoftLayerConstants.PROPERTY_SOFTLAYER_INCLUDE_PUBLIC_IMAGES;
 import static org.jclouds.softlayer.reference.SoftLayerConstants.PROPERTY_SOFTLAYER_VIRTUALGUEST_ACTIVE_TRANSACTIONS_DELAY;
 import static org.jclouds.softlayer.reference.SoftLayerConstants.PROPERTY_SOFTLAYER_VIRTUALGUEST_LOGIN_DETAILS_DELAY;
 import static org.jclouds.util.Predicates2.retry;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Resource;
 import javax.inject.Inject;
@@ -49,6 +48,7 @@ import org.jclouds.compute.domain.HardwareBuilder;
 import org.jclouds.compute.domain.Processor;
 import org.jclouds.compute.domain.Template;
 import org.jclouds.compute.domain.Volume;
+import org.jclouds.compute.domain.Volume.Type;
 import org.jclouds.compute.domain.internal.VolumeImpl;
 import org.jclouds.compute.reference.ComputeServiceConstants;
 import org.jclouds.domain.LoginCredentials;
@@ -57,13 +57,16 @@ import org.jclouds.softlayer.SoftLayerApi;
 import org.jclouds.softlayer.compute.options.SoftLayerTemplateOptions;
 import org.jclouds.softlayer.domain.ContainerVirtualGuestConfiguration;
 import org.jclouds.softlayer.domain.Datacenter;
+import org.jclouds.softlayer.domain.NetworkVlan;
 import org.jclouds.softlayer.domain.OperatingSystem;
 import org.jclouds.softlayer.domain.Password;
+import org.jclouds.softlayer.domain.SecuritySshKey;
 import org.jclouds.softlayer.domain.SoftwareDescription;
 import org.jclouds.softlayer.domain.SoftwareLicense;
 import org.jclouds.softlayer.domain.VirtualDiskImage;
 import org.jclouds.softlayer.domain.VirtualDiskImageSoftware;
 import org.jclouds.softlayer.domain.VirtualGuest;
+import org.jclouds.softlayer.domain.VirtualGuestAttribute;
 import org.jclouds.softlayer.domain.VirtualGuestBlockDevice;
 import org.jclouds.softlayer.domain.VirtualGuestBlockDeviceTemplate;
 import org.jclouds.softlayer.domain.VirtualGuestBlockDeviceTemplateGroup;
@@ -72,10 +75,13 @@ import org.jclouds.softlayer.domain.VirtualGuestNetworkComponent;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
+import com.google.common.base.Stopwatch;
+import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
@@ -89,9 +95,10 @@ import com.google.common.collect.Sets;
 public class SoftLayerComputeServiceAdapter implements
       ComputeServiceAdapter<VirtualGuest, Hardware, OperatingSystem, Datacenter> {
 
+   private static final String USER_META_NOTES = "notes";
+   private static final int USER_META_NOTES_MAX_LENGTH = 1000;
    private static final String BOOTABLE_DEVICE = "0";
    public static final String DEFAULT_DISK_TYPE = "LOCAL";
-   public static final int DEFAULT_PORT_SPEED = 100;
 
    @Resource
    @Named(ComputeServiceConstants.COMPUTE_LOGGER)
@@ -102,19 +109,16 @@ public class SoftLayerComputeServiceAdapter implements
    private final Predicate<VirtualGuest> loginDetailsTester;
    private final long guestLoginDelay;
    private final long activeTransactionsDelay;
-   private final boolean includePublicImages;
 
    @Inject
    public SoftLayerComputeServiceAdapter(SoftLayerApi api,
          VirtualGuestHasLoginDetailsPresent virtualGuestHasLoginDetailsPresent,
          @Memoized Supplier<ContainerVirtualGuestConfiguration> createObjectOptionsSupplier,
          @Named(PROPERTY_SOFTLAYER_VIRTUALGUEST_LOGIN_DETAILS_DELAY) long guestLoginDelay,
-         @Named(PROPERTY_SOFTLAYER_VIRTUALGUEST_ACTIVE_TRANSACTIONS_DELAY) long activeTransactionsDelay,
-         @Named(PROPERTY_SOFTLAYER_INCLUDE_PUBLIC_IMAGES) boolean includePublicImages) {
+         @Named(PROPERTY_SOFTLAYER_VIRTUALGUEST_ACTIVE_TRANSACTIONS_DELAY) long activeTransactionsDelay) {
       this.api = checkNotNull(api, "api");
-      this.guestLoginDelay = checkNotNull(guestLoginDelay, "guestLoginDelay");
-      this.activeTransactionsDelay = checkNotNull(activeTransactionsDelay, "activeTransactionsDelay");
-      this.includePublicImages = checkNotNull(includePublicImages, "includePublicImages");
+      this.guestLoginDelay = guestLoginDelay;
+      this.activeTransactionsDelay = activeTransactionsDelay;
       this.createObjectOptionsSupplier = checkNotNull(createObjectOptionsSupplier, "createObjectOptionsSupplier");
       checkArgument(guestLoginDelay > 500, "guestOrderDelay must be in milliseconds and greater than 500");
       this.loginDetailsTester = retry(virtualGuestHasLoginDetailsPresent, guestLoginDelay);
@@ -126,41 +130,87 @@ public class SoftLayerComputeServiceAdapter implements
       checkNotNull(template, "template was null");
       checkNotNull(template.getOptions(), "template options was null");
       checkArgument(template.getOptions().getClass().isAssignableFrom(SoftLayerTemplateOptions.class),
-            "options class %s should have been assignable from SoftLayerTemplateOptions", template.getOptions()
-                  .getClass());
+              "options class %s should have been assignable from SoftLayerTemplateOptions",
+              template.getOptions().getClass());
 
       SoftLayerTemplateOptions templateOptions = template.getOptions().as(SoftLayerTemplateOptions.class);
       String domainName = templateOptions.getDomainName();
-      String diskType = templateOptions.getDiskType().or(DEFAULT_DISK_TYPE);
-      int portSpeed = templateOptions.getPortSpeed().or(DEFAULT_PORT_SPEED);
-
+      String diskType = templateOptions.getDiskType() == null ? DEFAULT_DISK_TYPE : templateOptions.getDiskType();
+      boolean hourlyBillingFlag = templateOptions.isHourlyBillingFlag()  == null ? true : templateOptions.isHourlyBillingFlag();
+      Integer portSpeed = templateOptions.getPortSpeed();
+      Set<VirtualGuestNetworkComponent> networkComponents = portSpeed != null ?
+              ImmutableSet.of(VirtualGuestNetworkComponent.builder().speed(portSpeed).build()) :
+              ImmutableSet.<VirtualGuestNetworkComponent>of();
       final Datacenter datacenter = Datacenter.builder().name(template.getLocation().getId()).build();
       final String imageId = template.getImage().getId();
       int cores = (int) template.getHardware().getProcessors().get(0).getCores();
+      String notes = getNotes(templateOptions);
 
-      VirtualGuest.Builder virtualGuestBuilder = VirtualGuest.builder()
+      VirtualGuest.Builder<?> virtualGuestBuilder = VirtualGuest.builder()
               .domain(domainName)
               .hostname(name)
+              .hourlyBillingFlag(hourlyBillingFlag)
               .startCpus(cores)
               .maxMemory(template.getHardware().getRam())
               .datacenter(datacenter)
-              .networkComponents(VirtualGuestNetworkComponent.builder().speed(portSpeed).build());
+              .localDiskFlag(isLocalDisk(diskType))
+              .networkComponents(networkComponents);
 
       // set operating system or blockDeviceTemplateGroup
       Optional<OperatingSystem> optionalOperatingSystem = tryExtractOperatingSystemFrom(imageId);
-      if (optionalOperatingSystem.isPresent()) {
+      if (optionalOperatingSystem != null) {
          virtualGuestBuilder.operatingSystem(optionalOperatingSystem.get());
-      // the imageId specified is a the id of a public/private/flex image
+      // the imageId specified is an id of a public/private/flex image
       } else {
          VirtualGuestBlockDeviceTemplateGroup blockDeviceTemplateGroup = VirtualGuestBlockDeviceTemplateGroup
                  .builder().globalIdentifier(imageId).build();
          virtualGuestBuilder.blockDeviceTemplateGroup(blockDeviceTemplateGroup).build();
       }
       // set multi-disks
-      if (templateOptions.getBlockDevices().isPresent()) {
-         List<VirtualGuestBlockDevice> blockDevices = getBlockDevices(templateOptions.getBlockDevices().get(), diskType);
+      if (!templateOptions.getBlockDevices().isEmpty()) {
+         List<VirtualGuestBlockDevice> blockDevices = getBlockDevices(templateOptions.getBlockDevices(), diskType);
          virtualGuestBuilder.blockDevices(blockDevices);
-         virtualGuestBuilder.localDiskFlag(isLocalDisk(diskType));
+      }
+      // set dedicatedAccountHostOnlyFlag
+      if (templateOptions.isDedicatedAccountHostOnlyFlag() != null) {
+         virtualGuestBuilder.dedicatedAccountHostOnly(templateOptions.isDedicatedAccountHostOnlyFlag());
+      }
+      // set privateNetworkOnlyFlag
+      if (templateOptions.isPrivateNetworkOnlyFlag() != null) {
+         virtualGuestBuilder.privateNetworkOnlyFlag(templateOptions.isPrivateNetworkOnlyFlag());
+      }
+      // set primaryNetworkComponent.networkVlan.id
+      if (templateOptions.getPrimaryNetworkComponentNetworkVlanId() != null) {
+         int primaryNetworkComponentNetworkVlanId = templateOptions.getPrimaryNetworkComponentNetworkVlanId();
+         virtualGuestBuilder.primaryNetworkComponent(
+                 VirtualGuestNetworkComponent.builder()
+                         .networkVlan(NetworkVlan.builder().id(primaryNetworkComponentNetworkVlanId).build())
+                         .build());
+      }
+      // set primaryBackendNetworkComponent.networkVlan.id
+      if (templateOptions.getPrimaryBackendNetworkComponentNetworkVlanId() != null) {
+         int primaryBackendNetworkComponentNetworkVlanId = templateOptions.getPrimaryBackendNetworkComponentNetworkVlanId();
+         virtualGuestBuilder.primaryBackendNetworkComponent(
+                 VirtualGuestNetworkComponent.builder()
+                         .networkVlan(NetworkVlan.builder().id(primaryBackendNetworkComponentNetworkVlanId).build())
+                         .build());
+      }
+      // set postInstallScriptUri
+      if (templateOptions.getPostInstallScriptUri() != null) {
+         // Specifies the uri location of the script to be downloaded and run after installation is complete.
+         virtualGuestBuilder.postInstallScriptUri(templateOptions.getPostInstallScriptUri());
+      }
+      // set userData
+      if (templateOptions.getUserData() != null) {
+         virtualGuestBuilder.virtualGuestAttribute(VirtualGuestAttribute.builder().value(templateOptions.getUserData()).build());
+      }
+      // set sshKeys
+      if (!templateOptions.getSshKeys().isEmpty()) {
+         Set<SecuritySshKey> sshKeys = Sets.newHashSet();
+         for (int sshKeyId : templateOptions.getSshKeys()) {
+            sshKeys.add(SecuritySshKey.builder().id(sshKeyId).build());
+         }
+         virtualGuestBuilder.sshKeys(sshKeys);
       }
 
       VirtualGuest virtualGuest = virtualGuestBuilder.build();
@@ -169,8 +219,13 @@ public class SoftLayerComputeServiceAdapter implements
       logger.trace("<< VirtualGuest(%s)", result.getId());
 
       // tags
-      if (templateOptions.getTags() != null) {
+      if (!templateOptions.getTags().isEmpty()) {
          api.getVirtualGuestApi().setTags(result.getId(), templateOptions.getTags());
+      }
+
+      // notes
+      if (!Strings.isNullOrEmpty(notes)) {
+         api.getVirtualGuestApi().setNotes(result.getId(), notes);
       }
 
       logger.debug(">> awaiting login details for virtualGuest(%s)", result.getId());
@@ -187,8 +242,20 @@ public class SoftLayerComputeServiceAdapter implements
       }
       result = api.getVirtualGuestApi().getVirtualGuest(result.getId());
       Password pwd = get(result.getOperatingSystem().getPasswords(), 0);
-      return new NodeAndInitialCredentials(result, result.getId() + "",
+      return new NodeAndInitialCredentials<VirtualGuest>(result, result.getId() + "",
               LoginCredentials.builder().user(pwd.getUsername()).password(pwd.getPassword()).build());
+   }
+
+   private String getNotes(SoftLayerTemplateOptions templateOptions) {
+      String notes = null;
+      Map<String, String> meta = templateOptions.getUserMetadata();
+      if (meta != null) {
+         notes = meta.get(USER_META_NOTES);
+         if (!Strings.isNullOrEmpty(notes)) {
+            checkArgument(notes.length() <= USER_META_NOTES_MAX_LENGTH, "'notes' property in user metadata should be long at most " + USER_META_NOTES_MAX_LENGTH + " characters.");
+         }
+      }
+      return notes;
    }
 
    @Override
@@ -205,7 +272,7 @@ public class SoftLayerComputeServiceAdapter implements
                     .compare(getBootableDeviceType(h1), getBootableDeviceType(h2));
             if (!volumes1.isEmpty() && !volumes2.isEmpty() && volumes1.size() == volumes2.size()) {
                for (int i = 0; i < volumes1.size(); i++) {
-                  comparisonChain.compare(volumes1.get(i).getType(), volumes2.get(i).getType());
+                  comparisonChain = comparisonChain.compare(volumes1.get(i).getType(), volumes2.get(i).getType());
                }
             }
             return comparisonChain.result();
@@ -241,28 +308,8 @@ public class SoftLayerComputeServiceAdapter implements
    @Override
    public Set<OperatingSystem> listImages() {
       Set<OperatingSystem> result = Sets.newHashSet();
-      Set<SoftwareDescription> allObjects = api.getSoftwareDescriptionApi().getAllObjects();
-
-      // add private images
-      Set<VirtualGuestBlockDeviceTemplateGroup> privateImages = api.getAccountApi().getBlockDeviceTemplateGroups();
-      for (VirtualGuestBlockDeviceTemplateGroup privateImage : privateImages) {
-         Optional<OperatingSystem> operatingSystemOptional = tryExtractOperatingSystemFrom(privateImage);
-         if (operatingSystemOptional.isPresent()) {
-            result.add(operatingSystemOptional.get());
-         }
-      }
-
-      if (includePublicImages) {
-         Set<VirtualGuestBlockDeviceTemplateGroup> publicImages = api.getVirtualGuestBlockDeviceTemplateGroupApi().getPublicImages();
-         for (VirtualGuestBlockDeviceTemplateGroup publicImage : publicImages) {
-            Optional<OperatingSystem> operatingSystemOptional = tryExtractOperatingSystemFrom(publicImage);
-            if (operatingSystemOptional.isPresent()) {
-               result.add(operatingSystemOptional.get());
-            }
-         }
-      }
-
       // add allObjects filtered by the available OS
+      Set<SoftwareDescription> allObjects = api.getSoftwareDescriptionApi().getAllObjects();
       for (OperatingSystem os : createObjectOptionsSupplier.get().getVirtualGuestOperatingSystems()) {
          result.addAll(FluentIterable.from(allObjects)
                  .filter(new IsOperatingSystem())
@@ -275,13 +322,22 @@ public class SoftLayerComputeServiceAdapter implements
 
    @Override
    public OperatingSystem getImage(final String id) {
-      return find(listImages(), new Predicate<OperatingSystem>() {
+      // look for imageId among stock images
+      Optional<OperatingSystem> operatingSystemOptional = tryFind(listImages(),
+              new Predicate<OperatingSystem>() {
+                 @Override
+                 public boolean apply(OperatingSystem input) {
+                    return input.getId().equals(id);
+                 }
+              }
+      );
+      if (operatingSystemOptional.isPresent()) return operatingSystemOptional.get();
 
-         @Override
-         public boolean apply(OperatingSystem input) {
-            return input.getId().equals(id);
-         }
-      }, null);
+      // if imageId is not a stock image, it searches among private and public images
+      Stopwatch stopwatch = Stopwatch.createStarted();
+      VirtualGuestBlockDeviceTemplateGroup image = api.getVirtualGuestBlockDeviceTemplateGroupApi().getObject(id);
+      logger.trace("<< Image(%s) found in (%s)", id, stopwatch.elapsed(TimeUnit.SECONDS));
+      return tryExtractOperatingSystemFrom(image).orNull();
    }
 
    @Override
@@ -407,6 +463,7 @@ public class SoftLayerComputeServiceAdapter implements
    }
 
    private Optional<OperatingSystem> tryExtractOperatingSystemFrom(VirtualGuestBlockDeviceTemplateGroup image) {
+      if (image.getGlobalIdentifier() == null) return Optional.absent();
       return FluentIterable.from(image.getChildren())
               .transformAndConcat(new BlockDeviceTemplateGroupToBlockDeviceTemplateIterable())
               .filter(new IsBootableDevice())
@@ -429,13 +486,13 @@ public class SoftLayerComputeServiceAdapter implements
       public boolean apply(VirtualGuest guest) {
          checkNotNull(guest, "virtual guest was null");
 
-         VirtualGuest newGuest = client.getVirtualGuestApi().getVirtualGuest(guest.getId());
-         boolean hasBackendIp = newGuest.getPrimaryBackendIpAddress() != null;
-         boolean hasPrimaryIp = newGuest.getPrimaryIpAddress() != null;
-         boolean hasPasswords = newGuest.getOperatingSystem() != null
-                 && !newGuest.getOperatingSystem().getPasswords().isEmpty();
+         VirtualGuest virtualGuest = client.getVirtualGuestApi().getVirtualGuest(guest.getId());
+         boolean hasBackendIp = virtualGuest.getPrimaryBackendIpAddress() != null;
+         boolean hasPrimaryIp = virtualGuest.getPrimaryIpAddress() != null;
+         boolean hasPasswords = virtualGuest.getOperatingSystem() != null
+                 && !virtualGuest.getOperatingSystem().getPasswords().isEmpty();
 
-         return hasBackendIp && hasPrimaryIp && hasPasswords;
+         return virtualGuest.isPrivateNetworkOnly() ? hasBackendIp && hasPasswords : hasBackendIp && hasPrimaryIp && hasPasswords;
       }
    }
 
@@ -497,7 +554,7 @@ public class SoftLayerComputeServiceAdapter implements
       }
    }
 
-   private class IsOperatingSystem implements Predicate<SoftwareDescription> {
+   private static class IsOperatingSystem implements Predicate<SoftwareDescription> {
       @Override
       public boolean apply(SoftwareDescription softwareDescription) {
          // operatingSystem is set to '1' if this Software Description describes an Operating System.

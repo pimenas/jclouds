@@ -54,7 +54,8 @@ import com.google.common.annotations.Beta;
  */
 @Beta
 @Consumes(MediaType.APPLICATION_JSON)
-@Extension(of = ServiceType.IDENTITY, namespace = ExtensionNamespaces.OS_KSADM)
+@Extension(of = ServiceType.IDENTITY, namespace = ExtensionNamespaces.OS_KSADM,
+      name = ExtensionNames.OS_KSADM, alias = ExtensionAliases.OS_KSADM)
 @RequestFilters(AuthenticateRequest.class)
 @Path("OS-KSADM/services")
 public interface ServiceAdminApi {
@@ -87,7 +88,6 @@ public interface ServiceAdminApi {
    @POST
    @SelectJson("OS-KSADM:service")
    @WrapWith("OS-KSADM:service")
-   @Fallback(NullOnNotFoundOr404.class)
    @Nullable
    Service create(@PayloadParam("name") String name, @PayloadParam("type") String type,
          @PayloadParam("description") String description);

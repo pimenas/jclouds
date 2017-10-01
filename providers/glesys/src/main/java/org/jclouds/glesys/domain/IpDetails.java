@@ -24,8 +24,8 @@ import java.util.List;
 import org.jclouds.javax.annotation.Nullable;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.collect.ImmutableList;
 
 /**
@@ -217,7 +217,7 @@ public class IpDetails {
                        @Nullable String netmask, @Nullable String broadcast, @Nullable String gateway,
                        List<String> nameServers, @Nullable String serverId, Cost cost, GleSYSBoolean reserved) {
       this.datacenter = checkNotNull(datacenter, "datacenter");
-      this.version = checkNotNull(version, "version");
+      this.version = version;
       this.ptr = checkNotNull(ptr, "ptr");
       this.platform = checkNotNull(platform, "platform");
       this.address = address;

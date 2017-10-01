@@ -77,9 +77,7 @@ public interface BlobBuilder {
     * 
     * @param payload
     *           payload you wish to construct the {@link Blob} with.
-    * @deprecated see payload(ByteSource.wrap(byte[])
     */
-   @Deprecated
    PayloadBlobBuilder payload(byte[] payload);
 
    /**
@@ -91,18 +89,14 @@ public interface BlobBuilder {
     * 
     * @param payload
     *           payload you wish to construct the {@link Blob} with.
-    * @deprecated see payload(ByteSource.wrap(String.getBytes()))
     */
-   @Deprecated
    PayloadBlobBuilder payload(String payload);
 
    /**
     * 
     * @param payload
     *           payload you wish to construct the {@link Blob} with.
-    * @deprecated see payload(Files.asByteSource(File))
     */
-   @Deprecated
    PayloadBlobBuilder payload(File payload);
 
    /**
@@ -113,6 +107,8 @@ public interface BlobBuilder {
    Blob build();
 
    public interface PayloadBlobBuilder extends BlobBuilder {
+
+      PayloadBlobBuilder cacheControl(String cacheControl);
 
       PayloadBlobBuilder contentLength(long contentLength);
 

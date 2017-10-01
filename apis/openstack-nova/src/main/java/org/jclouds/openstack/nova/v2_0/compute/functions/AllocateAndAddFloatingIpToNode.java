@@ -39,12 +39,14 @@ import org.jclouds.openstack.nova.v2_0.domain.FloatingIP;
 import org.jclouds.openstack.nova.v2_0.domain.regionscoped.RegionAndId;
 import org.jclouds.openstack.nova.v2_0.extensions.FloatingIPApi;
 import org.jclouds.rest.InsufficientResourcesException;
+import org.jclouds.rest.ResourceNotFoundException;
 
 import com.google.common.base.Function;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.cache.LoadingCache;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -62,13 +64,15 @@ public class AllocateAndAddFloatingIpToNode implements
    private final Predicate<AtomicReference<NodeMetadata>> nodeRunning;
    private final NovaApi novaApi;
    private final LoadingCache<RegionAndId, Iterable<? extends FloatingIP>> floatingIpCache;
+   private final CleanupResources cleanupResources;
 
    @Inject
    public AllocateAndAddFloatingIpToNode(@Named(TIMEOUT_NODE_RUNNING) Predicate<AtomicReference<NodeMetadata>> nodeRunning,
-            NovaApi novaApi, @Named("FLOATINGIP") LoadingCache<RegionAndId, Iterable<? extends FloatingIP>> floatingIpCache) {
+            NovaApi novaApi, @Named("FLOATINGIP") LoadingCache<RegionAndId, Iterable<? extends FloatingIP>> floatingIpCache, CleanupResources cleanupResources) {
       this.nodeRunning = checkNotNull(nodeRunning, "nodeRunning");
       this.novaApi = checkNotNull(novaApi, "novaApi");
       this.floatingIpCache = checkNotNull(floatingIpCache, "floatingIpCache");
+      this.cleanupResources = checkNotNull(cleanupResources, "cleanupResources");
    }
 
    @Override
@@ -82,13 +86,15 @@ public class AllocateAndAddFloatingIpToNode implements
 
       Optional<FloatingIP> ip = allocateFloatingIPForNode(floatingIpApi, poolNames, node.getId());
       if (!ip.isPresent()) {
+         cleanupResources.apply(node);
          throw new InsufficientResourcesException("Failed to allocate a FloatingIP for node(" + node.getId() + ")");
       }
       logger.debug(">> adding floatingIp(%s) to node(%s)", ip.get().getIp(), node.getId());
 
       floatingIpApi.addToServer(ip.get().getIp(), node.getProviderId());
+
       input.get().getNodeMetadata().set(NodeMetadataBuilder.fromNodeMetadata(node).publicAddresses(ImmutableSet.of(ip.get().getIp())).build());
-      floatingIpCache.invalidate(RegionAndId.fromSlashEncoded(node.getId()));
+      floatingIpCache.asMap().putIfAbsent(RegionAndId.fromSlashEncoded(node.getId()), ImmutableList.of(ip.get()));
       return input.get().getNodeMetadata();
    }
 
@@ -100,7 +106,7 @@ public class AllocateAndAddFloatingIpToNode implements
     * @param nodeID optional id of the Node we are trying to allocate a FloatingIP for. Used here only for logging purposes
     * @return Optional<FloatingIP>
     */
-   private Optional<FloatingIP> allocateFloatingIPForNode(FloatingIPApi floatingIpApi, Optional<Set<String>> poolNames, String nodeID) {
+   private synchronized Optional<FloatingIP> allocateFloatingIPForNode(FloatingIPApi floatingIpApi, Optional<Set<String>> poolNames, String nodeID) {
 
       FloatingIP ip = null;
 
@@ -110,9 +116,10 @@ public class AllocateAndAddFloatingIpToNode implements
             try {
                logger.debug(">> allocating floating IP from pool %s for node(%s)", poolName, nodeID);
                ip = floatingIpApi.allocateFromPool(poolName);
-               if (ip != null)
-                  return Optional.of(ip);
-            } catch (InsufficientResourcesException ire){
+               return Optional.of(ip);
+            } catch (ResourceNotFoundException ex) {
+               logger.trace("<< [%s] failed to allocate floating IP from pool %s for node(%s)", ex.getMessage(), poolName, nodeID);
+            } catch (InsufficientResourcesException ire) {
                logger.trace("<< [%s] failed to allocate floating IP from pool %s for node(%s)", ire.getMessage(), poolName, nodeID);
             }
          }
@@ -122,8 +129,9 @@ public class AllocateAndAddFloatingIpToNode implements
       try {
          logger.debug(">> creating floating IP for node(%s)", nodeID);
          ip = floatingIpApi.create();
-         if (ip != null)
-            return Optional.of(ip);
+         return Optional.of(ip);
+      } catch (ResourceNotFoundException ex) {
+         logger.trace("<< [%s] failed to create floating IP for node(%s)", ex.getMessage(), nodeID);
       } catch (InsufficientResourcesException ire) {
          logger.trace("<< [%s] failed to create floating IP for node(%s)", ire.getMessage(), nodeID);
       }
@@ -140,6 +148,9 @@ public class AllocateAndAddFloatingIpToNode implements
 
       }));
       // try to prevent multiple parallel launches from choosing the same ip.
+      if (unassignedIps.isEmpty()) {
+         return Optional.absent();
+      }
       Collections.shuffle(unassignedIps);
       ip = Iterables.getLast(unassignedIps);
       return Optional.fromNullable(ip);

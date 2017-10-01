@@ -22,8 +22,8 @@ import java.util.List;
 import org.jclouds.openstack.v2_0.domain.Link;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 
@@ -104,7 +104,7 @@ public class Flavor implements Comparable<Flavor>{
          return 1;
       if (this == that)
          return 0;
-      return this.getId() > that.getId() ? +1 : this.getId() < this.getId() ? -1 : 0;
+      return this.getId() > that.getId() ? +1 : this.getId() < that.getId() ? -1 : 0;
    }
 
    public static Builder builder() { 

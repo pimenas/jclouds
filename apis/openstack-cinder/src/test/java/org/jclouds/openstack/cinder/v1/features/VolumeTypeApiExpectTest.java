@@ -17,7 +17,6 @@
 package org.jclouds.openstack.cinder.v1.features;
 
 import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertNull;
 
 import java.net.URI;
 import java.util.Set;
@@ -49,7 +48,7 @@ public class VolumeTypeApiExpectTest extends BaseCinderApiExpectTest {
       ).getVolumeTypeApi("RegionOne");
 
       Set<? extends VolumeType> types = api.list().toSet();
-      assertEquals(types, ImmutableSet.of(testVolumeType()));
+      assertEquals(types, testVolumeTypes());
    }
 
    public void testGetVolumeType() {
@@ -65,18 +64,6 @@ public class VolumeTypeApiExpectTest extends BaseCinderApiExpectTest {
       assertEquals(type, testVolumeType());
    }
 
-   public void testGetVolumeTypeFailNotFound() {
-      URI endpoint = URI.create("http://172.16.0.1:8776/v1/50cdb4c60374463198695d9f798fa34d/types/X");
-      VolumeTypeApi api = requestsSendResponses(
-            keystoneAuthWithUsernameAndPasswordAndTenantName,
-            responseWithKeystoneAccess,
-            authenticatedGET().endpoint(endpoint).build(),
-            HttpResponse.builder().statusCode(404).build()
-      ).getVolumeTypeApi("RegionOne");
-
-      assertNull(api.get("X"));
-   }
-
    public VolumeType testVolumeType() {
       return VolumeType.builder()
             .id("1")
@@ -84,5 +71,20 @@ public class VolumeTypeApiExpectTest extends BaseCinderApiExpectTest {
             .created(dateService.iso8601SecondsDateParse("2012-05-10 12:33:06"))
             .extraSpecs(ImmutableMap.of("test", "value1", "test1", "wibble"))
             .build();
+   }
+   public Set<VolumeType> testVolumeTypes() {
+      VolumeType firstVolumeType = testVolumeType();
+      VolumeType secondVolumeTypeWithEmptyExtraSpecs = VolumeType.builder()
+              .id("2")
+              .name("jclouds-test-2")
+              .created(dateService.iso8601SecondsDateParse("2012-05-10 12:33:06"))
+              .build();
+      VolumeType thirdVolumeTypeWithNullableExtraSpecs = VolumeType.builder()
+              .id("3")
+              .name("jclouds-test-3")
+              .created(dateService.iso8601SecondsDateParse("2012-05-10 12:33:06"))
+              .extraSpecs(null)
+              .build();
+      return ImmutableSet.of(firstVolumeType, secondVolumeTypeWithEmptyExtraSpecs, thirdVolumeTypeWithNullableExtraSpecs);
    }
 }

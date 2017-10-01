@@ -16,6 +16,7 @@
  */
 package org.jclouds.atmos.blobstore.integration;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.testng.Assert.assertEquals;
 
 import java.io.IOException;
@@ -78,6 +79,13 @@ public class AtmosIntegrationLiveTest extends BaseBlobIntegrationTest {
 
    // not supported
    @Override
+   protected void checkCacheControl(Blob blob, String cacheControl) {
+      assertThat(blob.getPayload().getContentMetadata().getCacheControl()).isNull();
+      assertThat(blob.getMetadata().getContentMetadata().getCacheControl()).isNull();
+   }
+
+   // not supported
+   @Override
    protected void checkContentDisposition(Blob blob, String contentDisposition) {
       assert blob.getPayload().getContentMetadata().getContentDisposition() == null;
       assert blob.getMetadata().getContentMetadata().getContentDisposition() == null;
@@ -126,4 +134,67 @@ public class AtmosIntegrationLiveTest extends BaseBlobIntegrationTest {
       // TODO
    }
 
+   @Override
+   public void testMultipartUploadNoPartsAbort() throws Exception {
+      throw new SkipException("Atmos does not support multipart uploads");
+   }
+
+   @Override
+   public void testMultipartUploadSinglePart() throws Exception {
+      throw new SkipException("Atmos does not support multipart uploads");
+   }
+
+   @Override
+   public void testMultipartUploadMultipleParts() throws Exception {
+      throw new SkipException("Atmos does not support multipart uploads");
+   }
+
+   @Override
+   public void testListMultipartUploads() throws Exception {
+      try {
+         super.testListMultipartUploads();
+      } catch (UnsupportedOperationException uoe) {
+         throw new SkipException("Atmos does not support multipart uploads", uoe);
+      }
+   }
+
+   @Override
+   public void testPutMultipartByteSource() throws Exception {
+      throw new SkipException("Atmos does not support multipart uploads");
+   }
+
+   @Override
+   public void testPutMultipartInputStream() throws Exception {
+      throw new SkipException("Atmos does not support multipart uploads");
+   }
+
+   @Override
+   @Test(groups = { "integration", "live" }, expectedExceptions = UnsupportedOperationException.class)
+   public void testPutBlobAccessMultipart() throws Exception {
+      super.testPutBlobAccessMultipart();
+   }
+
+   @Override
+   @Test(groups = { "integration", "live" }, expectedExceptions = UnsupportedOperationException.class)
+   public void testCopyIfMatch() throws Exception {
+      super.testCopyIfMatch();
+   }
+
+   @Override
+   @Test(groups = { "integration", "live" }, expectedExceptions = UnsupportedOperationException.class)
+   public void testCopyIfMatchNegative() throws Exception {
+      super.testCopyIfMatchNegative();
+   }
+
+   @Override
+   @Test(groups = { "integration", "live" }, expectedExceptions = UnsupportedOperationException.class)
+   public void testCopyIfNoneMatch() throws Exception {
+      super.testCopyIfNoneMatch();
+   }
+
+   @Override
+   @Test(groups = { "integration", "live" }, expectedExceptions = UnsupportedOperationException.class)
+   public void testCopyIfNoneMatchNegative() throws Exception {
+      super.testCopyIfNoneMatchNegative();
+   }
 }

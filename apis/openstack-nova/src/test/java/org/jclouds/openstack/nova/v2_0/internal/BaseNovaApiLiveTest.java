@@ -35,6 +35,7 @@ import org.jclouds.openstack.v2_0.domain.Resource;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import com.google.common.base.Predicate;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.ImmutableSet;
@@ -53,16 +54,15 @@ public class BaseNovaApiLiveTest extends BaseApiLiveTest<NovaApi> {
    }
 
    protected Set<String> regions;
+   protected String singleRegion;
 
    @BeforeClass(groups = { "integration", "live" })
    @Override
    public void setup() {
       super.setup();
 
-      String testRegion = System.getProperty("test." + provider + ".region");
-
-      if (testRegion != null) {
-         regions = ImmutableSet.of(testRegion);
+      if (singleRegion != null) {
+         regions = ImmutableSet.of(singleRegion);
       } else {
          regions = api.getConfiguredRegions();
       }
@@ -81,6 +81,7 @@ public class BaseNovaApiLiveTest extends BaseApiLiveTest<NovaApi> {
       Properties props = super.setupProperties();
       setIfTestSystemPropertyPresent(props, KeystoneProperties.CREDENTIAL_TYPE);
       setIfTestSystemPropertyPresent(props, NovaProperties.AUTO_ALLOCATE_FLOATING_IPS);
+      singleRegion = setIfTestSystemPropertyPresent(props, provider + ".region");
       return props;
    }
 
@@ -90,7 +91,7 @@ public class BaseNovaApiLiveTest extends BaseApiLiveTest<NovaApi> {
 
    protected Server createServerInRegion(String regionId, CreateServerOptions options) {
       ServerApi serverApi = api.getServerApi(regionId);
-      ServerCreated server = serverApi.create(hostName, imageIdForRegion(regionId), flavorRefForRegion(regionId), options);
+      ServerCreated server = serverApi.create(hostName, imageId(regionId), flavorId(regionId), options);
       blockUntilServerInState(server.getId(), serverApi, Status.ACTIVE);
       return serverApi.get(server.getId());
    }
@@ -106,23 +107,42 @@ public class BaseNovaApiLiveTest extends BaseApiLiveTest<NovaApi> {
                         .getTaskState() != null)); currentDetails = api.get(serverId)) {
          System.out.printf("blocking on status %s%n%s%n", status, currentDetails);
          try {
-            Thread.sleep(5 * 1000);
+            Thread.sleep(15 * 1000);
          } catch (InterruptedException e) {
             throw Throwables.propagate(e);
          }
       }
    }
 
-   protected String imageIdForRegion(String regionId) {
-      ImageApi imageApi = api.getImageApi(regionId);
+   protected String imageId(String regionId) {
+      String imageIdKey = "test." + provider + ".image-id";
 
-      // Get the first image from the list as it tends to be "lighter" and faster to start
-      return Iterables.get(imageApi.list().concat(), 0).getId();
+      if (System.getProperties().containsKey(imageIdKey)) {
+         return System.getProperty(imageIdKey);
+      }
+      else {
+         ImageApi imageApi = api.getImageApi(regionId);
+
+         // Get the first image from the list as it tends to be "lighter" and faster to start
+         return Iterables.get(imageApi.list().concat(), 0).getId();
+      }
    }
 
-   protected String flavorRefForRegion(String regionId) {
-      FlavorApi flavorApi = api.getFlavorApi(regionId);
-      return DEFAULT_FLAVOR_ORDERING.min(flavorApi.listInDetail().concat()).getId();
+   protected String flavorId(String regionId) {
+      String imageIdKey = "test." + provider + ".flavor-id";
+
+      if (System.getProperties().containsKey(imageIdKey)) {
+         return System.getProperty(imageIdKey);
+      }
+      else {
+         FlavorApi flavorApi = api.getFlavorApi(regionId);
+         return DEFAULT_FLAVOR_ORDERING.min(flavorApi.listInDetail().concat().filter(new Predicate<Flavor>() {
+            @Override
+            public boolean apply(Flavor in) {
+               return in.getDisk() >= 10 && in.getRam() >= 4 && in.getVcpus() >= 2;
+            }
+         })).getId();
+      }
    }
 
    static final Ordering<Flavor> DEFAULT_FLAVOR_ORDERING = new Ordering<Flavor>() {

@@ -18,7 +18,7 @@ package org.jclouds.openstack.nova.v2_0.compute.strategy;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static org.jclouds.ssh.SshKeys.fingerprintPrivateKey;
+import static com.google.common.base.Preconditions.checkState;
 
 import java.util.List;
 import java.util.Map;
@@ -35,7 +35,6 @@ import org.jclouds.compute.config.CustomizationResponse;
 import org.jclouds.compute.domain.NodeMetadata;
 import org.jclouds.compute.domain.Template;
 import org.jclouds.compute.functions.GroupNamingConvention;
-import org.jclouds.compute.reference.ComputeServiceConstants;
 import org.jclouds.compute.strategy.CreateNodeWithGroupEncodedIntoName;
 import org.jclouds.compute.strategy.CustomizeNodeAndAddToGoodMapOrPutExceptionIntoBadMap;
 import org.jclouds.compute.strategy.ListNodesStrategy;
@@ -45,16 +44,21 @@ import org.jclouds.openstack.nova.v2_0.compute.functions.AllocateAndAddFloatingI
 import org.jclouds.openstack.nova.v2_0.compute.options.NodeAndNovaTemplateOptions;
 import org.jclouds.openstack.nova.v2_0.compute.options.NovaTemplateOptions;
 import org.jclouds.openstack.nova.v2_0.domain.KeyPair;
+import org.jclouds.openstack.nova.v2_0.domain.SecurityGroup;
 import org.jclouds.openstack.nova.v2_0.domain.regionscoped.RegionAndName;
 import org.jclouds.openstack.nova.v2_0.domain.regionscoped.RegionSecurityGroupNameAndPorts;
 import org.jclouds.openstack.nova.v2_0.domain.regionscoped.SecurityGroupInRegion;
 
 import com.google.common.base.Function;
+import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.cache.LoadingCache;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.Atomics;
+import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -63,10 +67,11 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 public class ApplyNovaTemplateOptionsCreateNodesWithGroupEncodedIntoNameThenAddToSet extends
          CreateNodesWithGroupEncodedIntoNameThenAddToSet {
 
+   public static final String JCLOUDS_SG_PREFIX = "jclouds_sg";
+
    private final AllocateAndAddFloatingIpToNode createAndAddFloatingIpToNode;
-   private final LoadingCache<RegionAndName, SecurityGroupInRegion> securityGroupCache;
-   private final LoadingCache<RegionAndName, KeyPair> keyPairCache;
-   private final NovaApi novaApi;
+   protected final LoadingCache<RegionAndName, SecurityGroupInRegion> securityGroupCache;
+   protected final NovaApi novaApi;
 
    @Inject
    protected ApplyNovaTemplateOptionsCreateNodesWithGroupEncodedIntoNameThenAddToSet(
@@ -76,12 +81,10 @@ public class ApplyNovaTemplateOptionsCreateNodesWithGroupEncodedIntoNameThenAddT
             CustomizeNodeAndAddToGoodMapOrPutExceptionIntoBadMap.Factory customizeNodeAndAddToGoodMapOrPutExceptionIntoBadMapFactory,
             @Named(Constants.PROPERTY_USER_THREADS) ListeningExecutorService userExecutor,
             AllocateAndAddFloatingIpToNode createAndAddFloatingIpToNode,
-            LoadingCache<RegionAndName, SecurityGroupInRegion> securityGroupCache,
-            LoadingCache<RegionAndName, KeyPair> keyPairCache, NovaApi novaApi) {
+            LoadingCache<RegionAndName, SecurityGroupInRegion> securityGroupCache, NovaApi novaApi) {
       super(addNodeWithTagStrategy, listNodesStrategy, namingConvention, userExecutor,
                customizeNodeAndAddToGoodMapOrPutExceptionIntoBadMapFactory);
       this.securityGroupCache = checkNotNull(securityGroupCache, "securityGroupCache");
-      this.keyPairCache = checkNotNull(keyPairCache, "keyPairCache");
       this.createAndAddFloatingIpToNode = checkNotNull(createAndAddFloatingIpToNode,
                "createAndAddFloatingIpToNode");
       this.novaApi = checkNotNull(novaApi, "novaApi");
@@ -91,59 +94,86 @@ public class ApplyNovaTemplateOptionsCreateNodesWithGroupEncodedIntoNameThenAddT
    public Map<?, ListenableFuture<Void>> execute(String group, int count, Template template, Set<NodeMetadata> goodNodes,
             Map<NodeMetadata, Exception> badNodes, Multimap<NodeMetadata, CustomizationResponse> customizationResponses) {
 
-      Template mutableTemplate = template.clone();
-
-      NovaTemplateOptions templateOptions = NovaTemplateOptions.class.cast(mutableTemplate.getOptions());
-
-      assert template.getOptions().equals(templateOptions) : "options didn't clone properly";
-
-      String region = mutableTemplate.getLocation().getId();
+      NovaTemplateOptions templateOptions = NovaTemplateOptions.class.cast(template.getOptions());
+      final String region = template.getLocation().getId();
 
       if (templateOptions.shouldAutoAssignFloatingIp()) {
          checkArgument(novaApi.getFloatingIPApi(region).isPresent(),
-                  "Floating IPs are required by options, but the extension is not available! options: %s",
-                  templateOptions);
+                 "Floating IPs are required by options, but the extension is not available! options: %s",
+                 templateOptions);
+      }
+      if (templateOptions.shouldGenerateKeyPair() || templateOptions.getKeyPairName() != null) {
+         checkArgument(novaApi.getKeyPairApi(region).isPresent(),
+                 "Key Pairs are required by options, but the extension is not available! options: %s", templateOptions);
       }
 
-      boolean keyPairExtensionPresent = novaApi.getKeyPairApi(region).isPresent();
+      final List<Integer> inboundPorts = Ints.asList(templateOptions.getInboundPorts());
+      if (!templateOptions.getGroups().isEmpty() || !inboundPorts.isEmpty()) {
+         checkArgument(novaApi.getSecurityGroupApi(region).isPresent(),
+                 "Security groups are required by options, but the extension is not available! options: %s",
+                 templateOptions);
+      }
+      
+      KeyPair keyPair = null;
       if (templateOptions.shouldGenerateKeyPair()) {
-         checkArgument(keyPairExtensionPresent,
-                  "Key Pairs are required by options, but the extension is not available! options: %s", templateOptions);
-         KeyPair keyPair = keyPairCache.getUnchecked(RegionAndName.fromRegionAndName(region, namingConvention.create()
-                  .sharedNameForGroup(group)));
-         keyPairCache.asMap().put(RegionAndName.fromRegionAndName(region, keyPair.getName()), keyPair);
-         templateOptions.keyPairName(keyPair.getName());
+         keyPair = generateKeyPair(region, namingConvention.create().sharedNameForGroup(group));
+         // If a private key has not been explicitly set, configure the auto-generated one
+         if (Strings.isNullOrEmpty(templateOptions.getLoginPrivateKey())) {
+            templateOptions.overrideLoginPrivateKey(keyPair.getPrivateKey());
+         }
       } else if (templateOptions.getKeyPairName() != null) {
-         checkArgument(keyPairExtensionPresent,
-                  "Key Pairs are required by options, but the extension is not available! options: %s", templateOptions);
-         if (templateOptions.getLoginPrivateKey() != null) {
-            String pem = templateOptions.getLoginPrivateKey();
-            KeyPair keyPair = KeyPair.builder().name(templateOptions.getKeyPairName())
-                     .fingerprint(fingerprintPrivateKey(pem)).privateKey(pem).build();
-            keyPairCache.asMap().put(RegionAndName.fromRegionAndName(region, keyPair.getName()), keyPair);
-         }
+         keyPair = checkNotNull(novaApi.getKeyPairApi(region).get().get(templateOptions.getKeyPairName()), 
+                     "keypair %s doesn't exist", templateOptions.getKeyPairName());
+      }
+      if (keyPair != null) {
+         templateOptions.keyPairName(keyPair.getName());
       }
 
-      boolean securityGroupExtensionPresent = novaApi.getSecurityGroupApi(region).isPresent();
-      List<Integer> inboundPorts = Ints.asList(templateOptions.getInboundPorts());
+      ImmutableList.Builder<String> tagsBuilder = ImmutableList.builder();
+
       if (!templateOptions.getGroups().isEmpty()) {
-         checkArgument(securityGroupExtensionPresent,
-                  "Security groups are required by options, but the extension is not available! options: %s",
-                  templateOptions);
-      } else if (securityGroupExtensionPresent) {
-         if (templateOptions.getGroups().isEmpty() && !inboundPorts.isEmpty()) {
-            String securityGroupName = namingConvention.create().sharedNameForGroup(group);
-            try {
-               securityGroupCache.get(new RegionSecurityGroupNameAndPorts(region, securityGroupName, inboundPorts));
-            } catch (ExecutionException e) {
-               throw Throwables.propagate(e.getCause());
-            }
-            templateOptions.securityGroups(securityGroupName);
+         Set<String> securityGroupNames = novaApi.getSecurityGroupApi(region).get().list()
+                 .transform(new Function<SecurityGroup, String>() {
+                    @Override
+                    public String apply(SecurityGroup input) {
+                       return input.getName();
+                    }
+                 })
+                 .toSet();
+         for (String securityGroupName : templateOptions.getGroups()) {
+            checkState(securityGroupNames.contains(securityGroupName), "Cannot find security group with name " + securityGroupName + ". \nSecurity groups available are: \n" + Iterables.toString(securityGroupNames)); // {
          }
       }
-      templateOptions.userMetadata(ComputeServiceConstants.NODE_GROUP_KEY, group);
+      else if (!inboundPorts.isEmpty()) {
+         SecurityGroupInRegion securityGroupInRegion;
+         String securityGroupName = namingConvention.create().sharedNameForGroup(group);
+         try {
+            securityGroupInRegion = securityGroupCache.get(new RegionSecurityGroupNameAndPorts(region, securityGroupName, inboundPorts));
+         } catch (ExecutionException e) {
+            throw Throwables.propagate(e.getCause());
+         }
+         templateOptions.securityGroups(securityGroupName);
+         tagsBuilder.add(String.format("%s-%s", JCLOUDS_SG_PREFIX, securityGroupInRegion.getSecurityGroup().getId()));
+      }
+      templateOptions.tags(tagsBuilder.build());
 
-      return super.execute(group, count, mutableTemplate, goodNodes, badNodes, customizationResponses);
+      Map<?, ListenableFuture<Void>> responses = super.execute(group, count, template, goodNodes, badNodes,
+              customizationResponses);
+
+      // Key pairs in Openstack are only required to create the Server. They aren't used anymore so it is better
+      // to delete the auto-generated key pairs at this point where we know exactly which ones have been
+      // auto-generated by jclouds.
+      if (templateOptions.shouldGenerateKeyPair() && keyPair != null) {
+         registerAutoGeneratedKeyPairCleanupCallbacks(responses, region, keyPair.getName());
+      }
+      return responses;
+   }
+
+   private KeyPair generateKeyPair(String region, String prefix) {
+      logger.debug(">> creating default keypair for node...");
+      KeyPair keyPair = novaApi.getKeyPairApi(region).get().create(namingConvention.createWithoutPrefix().uniqueNameForGroup(prefix));
+      logger.debug(">> keypair created! %s", keyPair.getName());
+      return keyPair;
    }
 
    @Override
@@ -168,4 +198,36 @@ public class ApplyNovaTemplateOptionsCreateNodesWithGroupEncodedIntoNameThenAddT
          return future;
       }
    }
+
+   private void registerAutoGeneratedKeyPairCleanupCallbacks(final Map<?, ListenableFuture<Void>> responses,
+                                                             final String region, final String generatedKeyPairName) {
+      // The Futures.allAsList fails immediately if some of the futures fail. The Futures.successfulAsList, however,
+      // returns a list containing the results or 'null' for those futures that failed. We want to wait for all them
+      // (even if they fail), so better use the latter form.
+      ListenableFuture<List<Void>> aggregatedResponses = Futures.successfulAsList(responses.values());
+
+      // Key pairs must be cleaned up after all futures completed (even if some failed).
+      Futures.addCallback(aggregatedResponses, new FutureCallback<List<Void>>() {
+         @Override
+         public void onSuccess(List<Void> result) {
+            cleanupAutoGeneratedKeyPair(generatedKeyPairName);
+         }
+
+         @Override
+         public void onFailure(Throwable t) {
+            cleanupAutoGeneratedKeyPair(generatedKeyPairName);
+         }
+
+         private void cleanupAutoGeneratedKeyPair(String keyPairName) {
+            logger.debug(">> cleaning up auto-generated key pairs...");
+               try {
+                  novaApi.getKeyPairApi(region).get().delete(keyPairName);
+               } catch (Exception ex) {
+                  logger.warn(">> could not delete key pair %s: %s", keyPairName, ex.getMessage());
+               }
+         }
+
+      }, userExecutor);
+   }
+
 }

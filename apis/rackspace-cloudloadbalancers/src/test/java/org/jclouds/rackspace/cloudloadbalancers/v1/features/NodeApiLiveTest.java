@@ -22,7 +22,6 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -107,14 +106,14 @@ public class NodeApiLiveTest extends BaseCloudLoadBalancersApiLiveTest {
       for (LoadBalancer lb : nodes.keySet()) {
          Set<Node> response = api.getNodeApi(lb.getRegion(), lb.getId()).list().concat().toSet();
          assert null != response;
-         assertTrue(response.size() >= 0);
+         assertTrue(response.size() > 0);
          for (Node n : response) {
             assert n.getId() != -1 : n;
             assert n.getCondition() != null : n;
             assert n.getAddress() != null : n;
             assert n.getPort() != -1 : n;
             assert n.getStatus() != null : n;
-            assert !Arrays.asList(LoadBalancer.WEIGHTED_ALGORITHMS).contains(lb.getAlgorithm())
+            assert !LoadBalancer.WEIGHTED_ALGORITHMS.contains(lb.getAlgorithm())
                      || n.getWeight() != null : n;
 
             Node getDetails = api.getNodeApi(lb.getRegion(), lb.getId()).get(n.getId());
@@ -125,7 +124,7 @@ public class NodeApiLiveTest extends BaseCloudLoadBalancersApiLiveTest {
                assertEquals(getDetails.getAddress(), n.getAddress());
                assertEquals(getDetails.getPort(), n.getPort());
                assertEquals(getDetails.getStatus(), n.getStatus());
-               if (Arrays.asList(LoadBalancer.WEIGHTED_ALGORITHMS).contains(lb.getAlgorithm())) {
+               if (LoadBalancer.WEIGHTED_ALGORITHMS.contains(lb.getAlgorithm())) {
                   assertEquals(getDetails.getWeight(), n.getWeight());
                }
             } catch (AssertionError e) {

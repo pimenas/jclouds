@@ -24,7 +24,8 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.core.MediaType;
 
-import org.jclouds.Fallbacks;
+import org.jclouds.Fallbacks.EmptySetOnNotFoundOr404;
+import org.jclouds.Fallbacks.NullOnNotFoundOr404;
 import org.jclouds.http.filters.BasicAuthentication;
 import org.jclouds.rest.annotations.Fallback;
 import org.jclouds.rest.annotations.QueryParams;
@@ -47,7 +48,7 @@ public interface DatacenterApi {
    @GET
    @Path("/SoftLayer_Location_Datacenter/Datacenters")
    @QueryParams(keys = "objectMask", values = "locationAddress;regions")
-   @Fallback(Fallbacks.EmptySetOnNotFoundOr404.class)
+   @Fallback(EmptySetOnNotFoundOr404.class)
    Set<Datacenter> listDatacenters();
 
    /**
@@ -58,6 +59,6 @@ public interface DatacenterApi {
    @GET
    @Path("/SoftLayer_Location_Datacenter/{id}")
    @QueryParams(keys = "objectMask", values = "locationAddress;regions")
-   @Fallback(Fallbacks.NullOnNotFoundOr404.class)
+   @Fallback(NullOnNotFoundOr404.class)
    Datacenter getDatacenter(@PathParam("id") long id);
 }

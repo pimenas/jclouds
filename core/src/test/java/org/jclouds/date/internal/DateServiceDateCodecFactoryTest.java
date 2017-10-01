@@ -33,6 +33,7 @@ public class DateServiceDateCodecFactoryTest {
    private DateCodec rfc1123Codec;
    private DateCodec iso8601Codec;
    private DateCodec iso8601SecondsCodec;
+   private DateCodec asctimeCodec;
 
    @BeforeTest
    public void setUp() {
@@ -41,6 +42,7 @@ public class DateServiceDateCodecFactoryTest {
       rfc1123Codec = simpleDateCodecFactory.rfc1123();
       iso8601Codec = simpleDateCodecFactory.iso8601();
       iso8601SecondsCodec = simpleDateCodecFactory.iso8601Seconds();
+      asctimeCodec = simpleDateCodecFactory.asctime();
    }
    
    @Test
@@ -99,13 +101,30 @@ public class DateServiceDateCodecFactoryTest {
       Date date = new Date(1000);
       assertEquals(iso8601SecondsCodec.toDate(iso8601SecondsCodec.toString(date)), date);
 
-      assertEquals(iso8601SecondsCodec.toDate("2012-11-14T21:51:28UTC").getTime(), 1352929888000l);
+      assertEquals(iso8601SecondsCodec.toDate("2012-11-14T21:51:28UTC").getTime(), 1352929888000L);
    }
 
    @Test
    public void testCodecForIso8601SecondsThrowsParseExceptionWhenMalformed() {
       try {
          iso8601SecondsCodec.toDate("-");
+         fail();
+      } catch (IllegalArgumentException e) {
+      }
+   }
+   
+   @Test
+   public void testCodecForAsctime() {
+      Date date = new Date(1000);
+      assertEquals(asctimeCodec.toDate(asctimeCodec.toString(date)), date);
+
+      assertEquals(asctimeCodec.toDate("Thu Dec 01 16:00:00 GMT 1994"), new Date(786297600000L));
+   }
+
+   @Test
+   public void testCodecForAsctimeThrowsParseExceptionWhenMalformed() {
+      try {
+         asctimeCodec.toDate("-");
          fail();
       } catch (IllegalArgumentException e) {
       }

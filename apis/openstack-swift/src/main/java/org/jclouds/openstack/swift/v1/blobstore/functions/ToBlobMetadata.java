@@ -21,16 +21,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.jclouds.blobstore.domain.MutableBlobMetadata;
 import org.jclouds.blobstore.domain.StorageType;
 import org.jclouds.blobstore.domain.internal.MutableBlobMetadataImpl;
-import org.jclouds.blobstore.strategy.IfDirectoryReturnNameStrategy;
-import org.jclouds.blobstore.strategy.internal.MarkersIfDirectoryReturnNameStrategy;
 import org.jclouds.openstack.swift.v1.domain.Container;
 import org.jclouds.openstack.swift.v1.domain.SwiftObject;
+import org.jclouds.openstack.swift.v1.functions.ParseObjectListFromResponse;
 
 import com.google.common.base.Function;
 
 public class ToBlobMetadata implements Function<SwiftObject, MutableBlobMetadata> {
 
-   private final IfDirectoryReturnNameStrategy ifDirectoryReturnName = new MarkersIfDirectoryReturnNameStrategy();
    private final Container container;
 
    public ToBlobMetadata(Container container) {
@@ -46,21 +44,21 @@ public class ToBlobMetadata implements Function<SwiftObject, MutableBlobMetadata
       if (container.getAnybodyRead().isPresent()) {
          to.setPublicUri(from.getUri());
       }
+      String eTag = from.getETag();
       to.setUri(from.getUri());
-      to.setETag(from.getETag());
+      to.setETag(eTag);
       to.setName(from.getName());
       to.setLastModified(from.getLastModified());
       to.setContentMetadata(from.getPayload().getContentMetadata());
       to.getContentMetadata().setContentMD5(from.getPayload().getContentMetadata().getContentMD5AsHashCode());
       to.getContentMetadata().setExpires(from.getPayload().getContentMetadata().getExpires());
       to.setUserMetadata(from.getMetadata());
-      String directoryName = ifDirectoryReturnName.execute(to);
-      if (directoryName != null) {
-         to.setName(directoryName);
-         to.setType(StorageType.RELATIVE_PATH);
+      if (eTag != null && eTag.equals(ParseObjectListFromResponse.SUBDIR_ETAG)) {
+         to.setType(StorageType.FOLDER);
       } else {
          to.setType(StorageType.BLOB);
       }
+      to.setSize(from.getPayload().getContentMetadata().getContentLength());
       return to;
    }
 

@@ -58,16 +58,16 @@ public class ContainerApiMockTest extends BaseOpenStackMockTest<SwiftApi> {
          assertEquals(containers, ImmutableList.of(
                Container.builder()
                      .name("test_container_1")
-                     .objectCount(2)
-                     .bytesUsed(78).build(),
+                     .objectCount(2L)
+                     .bytesUsed(78L).build(),
                Container.builder()
                      .name("test_container_2")
-                     .objectCount(1)
-                     .bytesUsed(17).build()));
+                     .objectCount(1L)
+                     .bytesUsed(17L).build()));
 
          assertEquals(server.getRequestCount(), 2);
          assertAuthentication(server);
-         assertRequest(server.takeRequest(), "GET", "/v1/MossoCloudFS_5bcf396e-39dd-45ff-93a1-712b9aba90a9");
+         assertRequest(server.takeRequest(), "GET", "/v1/MossoCloudFS_5bcf396e-39dd-45ff-93a1-712b9aba90a9?format=json");
       } finally {
          server.shutdown();
       }
@@ -87,16 +87,16 @@ public class ContainerApiMockTest extends BaseOpenStackMockTest<SwiftApi> {
          assertEquals(containers, ImmutableList.of(
                Container.builder()
                      .name("test_container_1")
-                     .objectCount(2)
-                     .bytesUsed(78).build(),
+                     .objectCount(2L)
+                     .bytesUsed(78L).build(),
                Container.builder()
                      .name("test_container_2")
-                     .objectCount(1)
-                     .bytesUsed(17).build()));
+                     .objectCount(1L)
+                     .bytesUsed(17L).build()));
 
          assertEquals(server.getRequestCount(), 2);
          assertAuthentication(server);
-         assertRequest(server.takeRequest(), "GET", "/v1/MossoCloudFS_5bcf396e-39dd-45ff-93a1-712b9aba90a9?marker=test");
+         assertRequest(server.takeRequest(), "GET", "/v1/MossoCloudFS_5bcf396e-39dd-45ff-93a1-712b9aba90a9?format=json&marker=test");
       } finally {
          server.shutdown();
       }
@@ -116,8 +116,8 @@ public class ContainerApiMockTest extends BaseOpenStackMockTest<SwiftApi> {
 
          Container container = api.getContainerApi("DFW").get("myContainer");
          assertEquals(container.getName(), "myContainer");
-         assertEquals(container.getObjectCount(), 42l);
-         assertEquals(container.getBytesUsed(), 323479l);
+         assertEquals(container.getObjectCount(), Long.valueOf(42L));
+         assertEquals(container.getBytesUsed(), Long.valueOf(323479L));
          for (Entry<String, String> entry : container.getMetadata().entrySet()) {
             assertEquals(container.getMetadata().get(entry.getKey().toLowerCase()), entry.getValue());
          }
@@ -236,8 +236,8 @@ public class ContainerApiMockTest extends BaseOpenStackMockTest<SwiftApi> {
          SwiftApi api = api(server.getUrl("/").toString(), "openstack-swift");
          Container container = api.getContainerApi("DFW").get("myContainer");
          assertEquals(container.getName(), "myContainer");
-         assertEquals(container.getObjectCount(), 42l);
-         assertEquals(container.getBytesUsed(), 323479l);
+         assertEquals(container.getObjectCount(), Long.valueOf(42L));
+         assertEquals(container.getBytesUsed(), Long.valueOf(323479L));
          for (Entry<String, String> entry : container.getMetadata().entrySet()) {
             assertEquals(container.getMetadata().get(entry.getKey().toLowerCase()), entry.getValue());
          }
@@ -259,7 +259,7 @@ public class ContainerApiMockTest extends BaseOpenStackMockTest<SwiftApi> {
 
       try {
          SwiftApi api = api(server.getUrl("/").toString(), "openstack-swift");
-         assertTrue(api.getContainerApi("DFW").updateMetadata("myContainer", metadata));
+         api.getContainerApi("DFW").updateMetadata("myContainer", metadata);
 
          assertEquals(server.getRequestCount(), 2);
          assertEquals(server.takeRequest().getRequestLine(), "POST /tokens HTTP/1.1");
@@ -300,25 +300,6 @@ public class ContainerApiMockTest extends BaseOpenStackMockTest<SwiftApi> {
       MockWebServer server = mockOpenStackServer();
       server.enqueue(addCommonHeaders(new MockResponse().setBody(stringFromResource("/access.json"))));
       server.enqueue(addCommonHeaders(new MockResponse().setResponseCode(204)));
-
-      try {
-         SwiftApi api = api(server.getUrl("/").toString(), "openstack-swift");
-         assertTrue(api.getContainerApi("DFW").deleteIfEmpty("myContainer"));
-
-         assertEquals(server.getRequestCount(), 2);
-         assertEquals(server.takeRequest().getRequestLine(), "POST /tokens HTTP/1.1");
-         RecordedRequest deleteRequest = server.takeRequest();
-         assertEquals(deleteRequest.getRequestLine(),
-               "DELETE /v1/MossoCloudFS_5bcf396e-39dd-45ff-93a1-712b9aba90a9/myContainer HTTP/1.1");
-      } finally {
-         server.shutdown();
-      }
-   }
-
-   public void testAlreadyDeleted() throws Exception {
-      MockWebServer server = mockOpenStackServer();
-      server.enqueue(addCommonHeaders(new MockResponse().setBody(stringFromResource("/access.json"))));
-      server.enqueue(addCommonHeaders(new MockResponse().setResponseCode(404)));
 
       try {
          SwiftApi api = api(server.getUrl("/").toString(), "openstack-swift");

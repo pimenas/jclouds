@@ -81,7 +81,7 @@ public class BaseViewTest {
       }
    }
 
-   public class DummyView extends BaseView {
+   public static class DummyView extends BaseView {
 
       protected DummyView(ApiContext<DummyApi> context) {
          super(context, new TypeToken<ApiContext<DummyApi>>() {
@@ -104,7 +104,7 @@ public class BaseViewTest {
          wine.unwrap(typeToken(PeanutButter.class));
          fail();
       } catch (IllegalArgumentException e) {
-         assertEquals(e.getMessage(), "backend type: org.jclouds.internal.BaseViewTest$Water not assignable to org.jclouds.internal.BaseViewTest$PeanutButter");
+         assertEquals(e.getMessage(), "org.jclouds.internal.BaseViewTest$PeanutButter is not a supertype of backend type org.jclouds.internal.BaseViewTest$Water");
       }
    }
 

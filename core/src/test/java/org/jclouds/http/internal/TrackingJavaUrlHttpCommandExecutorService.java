@@ -16,6 +16,9 @@
  */
 package org.jclouds.http.internal;
 
+import static org.jclouds.Constants.PROPERTY_IDEMPOTENT_METHODS;
+import static org.jclouds.Constants.PROPERTY_USER_AGENT;
+
 import java.net.Proxy;
 import java.net.URI;
 import java.util.Collection;
@@ -28,6 +31,7 @@ import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLContext;
 
 import org.jclouds.http.HttpCommand;
+import org.jclouds.http.HttpResponse;
 import org.jclouds.http.HttpUtils;
 import org.jclouds.http.IOExceptionRetryHandler;
 import org.jclouds.http.handlers.DelegatingErrorHandler;
@@ -86,9 +90,19 @@ public class TrackingJavaUrlHttpCommandExecutorService extends JavaUrlHttpComman
             DelegatingRetryHandler retryHandler, IOExceptionRetryHandler ioRetryHandler,
             DelegatingErrorHandler errorHandler, HttpWire wire, @Named("untrusted") HostnameVerifier verifier,
             @Named("untrusted") Supplier<SSLContext> untrustedSSLContextProvider, Function<URI, Proxy> proxyForURI,
-            List<HttpCommand> commandsInvoked) throws SecurityException, NoSuchFieldException {
+            List<HttpCommand> commandsInvoked,
+            @Named(PROPERTY_IDEMPOTENT_METHODS) String idempotentMethods,
+            @Named(PROPERTY_USER_AGENT) String userAgent)
+            throws SecurityException, NoSuchFieldException {
       super(utils, contentMetadataCodec, retryHandler, ioRetryHandler, errorHandler, wire, verifier,
-            untrustedSSLContextProvider, proxyForURI);
+            untrustedSSLContextProvider, proxyForURI, idempotentMethods, userAgent);
       this.commandsInvoked = commandsInvoked;
    }
+
+   @Override
+   public HttpResponse invoke(HttpCommand command) {
+      commandsInvoked.add(command);
+      return super.invoke(command);
+   }
+   
 }

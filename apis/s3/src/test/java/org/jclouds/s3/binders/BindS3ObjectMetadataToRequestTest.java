@@ -44,7 +44,7 @@ public class BindS3ObjectMetadataToRequestTest extends BaseS3ClientTest<S3Client
    public void testPassWithMinimumDetailsAndPayload5GB() {
       S3Object object = injector.getInstance(S3Object.Factory.class).create(null);
       Payload payload = Payloads.newStringPayload("");
-      payload.getContentMetadata().setContentLength(5368709120l);
+      payload.getContentMetadata().setContentLength(5368709120L);
       object.setPayload(payload);
       object.getMetadata().setKey("foo");
 
@@ -59,10 +59,9 @@ public class BindS3ObjectMetadataToRequestTest extends BaseS3ClientTest<S3Client
    public void testExtendedPropertiesBind() {
       S3Object object = injector.getInstance(S3Object.Factory.class).create(null);
       Payload payload = Payloads.newStringPayload("");
-      payload.getContentMetadata().setContentLength(5368709120l);
+      payload.getContentMetadata().setContentLength(5368709120L);
       object.setPayload(payload);
       object.getMetadata().setKey("foo");
-      object.getMetadata().setCacheControl("no-cache");
       object.getMetadata().setUserMetadata(ImmutableMap.of("foo", "bar"));
 
       HttpRequest request = HttpRequest.builder().method("PUT").endpoint("http://localhost").build();
@@ -70,7 +69,7 @@ public class BindS3ObjectMetadataToRequestTest extends BaseS3ClientTest<S3Client
 
       assertEquals(binder.bindToRequest(request, object), HttpRequest.builder().method("PUT").endpoint(
                URI.create("http://localhost")).headers(
-               ImmutableMultimap.of("Cache-Control", "no-cache", "x-amz-meta-foo", "bar")).build());
+               ImmutableMultimap.of("x-amz-meta-foo", "bar")).build());
    }
 
    @Test(expectedExceptions = IllegalArgumentException.class)
@@ -90,7 +89,7 @@ public class BindS3ObjectMetadataToRequestTest extends BaseS3ClientTest<S3Client
    public void testNoKeyIsBad() {
       S3Object object = injector.getInstance(S3Object.Factory.class).create(null);
       Payload payload = Payloads.newStringPayload("");
-      payload.getContentMetadata().setContentLength(5368709120000l);
+      payload.getContentMetadata().setContentLength(5368709120000L);
       object.setPayload(payload);
 
       HttpRequest request = HttpRequest.builder().method("PUT").endpoint("http://localhost").build();
@@ -102,7 +101,7 @@ public class BindS3ObjectMetadataToRequestTest extends BaseS3ClientTest<S3Client
    public void testOver5GBIsBad() {
       S3Object object = injector.getInstance(S3Object.Factory.class).create(null);
       Payload payload = Payloads.newStringPayload("");
-      payload.getContentMetadata().setContentLength(5368709120000l);
+      payload.getContentMetadata().setContentLength(5368709120000L);
       object.setPayload(payload);
       object.getMetadata().setKey("foo");
 

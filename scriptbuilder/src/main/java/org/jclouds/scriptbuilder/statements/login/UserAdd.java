@@ -187,9 +187,12 @@ public class UserAdd implements Statement {
       if (family == OsFamily.WINDOWS)
          throw new UnsupportedOperationException("windows not yet implemented");
       String homeDir = (home != null) ? home : (defaultHome + '/' + login);
+      String usersDir = homeDir.substring(0, homeDir.lastIndexOf('/'));
       ImmutableList.Builder<Statement> statements = ImmutableList.builder();
       // useradd cannot create the default homedir
-      statements.add(Statements.exec("{md} " + homeDir.substring(0, homeDir.lastIndexOf('/'))));
+      statements.add(Statements.exec("{md} " + usersDir));
+      // make sure the folder is globally accessible even with umask 0077
+      statements.add(Statements.exec("chmod 0755 " + usersDir));
 
       ImmutableMap.Builder<String, String> userAddOptions = ImmutableMap.builder();
       // Include the username as the full name for now.
@@ -203,7 +206,7 @@ public class UserAdd implements Statement {
       userAddOptions.put("-s", shell);
       if (!groups.isEmpty()) {
          for (String group : groups)
-            statements.add(Statements.exec("groupadd -f " + group));
+            statements.add(Statements.exec("getent group " + group + " || groupadd -f " + group));
 
          List<String> groups = Lists.newArrayList(this.groups);
          String primaryGroup = groups.remove(0);
@@ -229,7 +232,7 @@ public class UserAdd implements Statement {
       if (!authorizeRSAPublicKeys.isEmpty() || installRSAPrivateKey != null) {
          String sshDir = homeDir + "{fs}.ssh";
          if (!authorizeRSAPublicKeys.isEmpty())
-            statements.add(new AuthorizeRSAPublicKeys(sshDir, authorizeRSAPublicKeys));
+            statements.add(new AuthorizeRSAPublicKeys(sshDir, authorizeRSAPublicKeys, login));
          if (installRSAPrivateKey != null)
             statements.add(new InstallRSAPrivateKey(sshDir, installRSAPrivateKey));
       }

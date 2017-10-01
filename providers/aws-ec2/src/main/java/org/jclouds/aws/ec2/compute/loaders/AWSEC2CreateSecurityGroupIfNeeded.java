@@ -29,9 +29,11 @@ import javax.inject.Singleton;
 
 import org.jclouds.aws.ec2.AWSEC2Api;
 import org.jclouds.aws.ec2.features.AWSSecurityGroupApi;
+import org.jclouds.aws.ec2.options.CreateSecurityGroupOptions;
 import org.jclouds.compute.reference.ComputeServiceConstants;
 import org.jclouds.ec2.compute.domain.RegionAndName;
 import org.jclouds.ec2.compute.domain.RegionNameAndIngressRules;
+import org.jclouds.ec2.domain.SecurityGroup;
 import org.jclouds.logging.Logger;
 import org.jclouds.net.domain.IpPermission;
 import org.jclouds.net.domain.IpProtocol;
@@ -69,17 +71,20 @@ public class AWSEC2CreateSecurityGroupIfNeeded extends CacheLoader<RegionAndName
    @Override
    public String load(RegionAndName from) {
       RegionNameAndIngressRules realFrom = RegionNameAndIngressRules.class.cast(from);
-      createSecurityGroupInRegion(from.getRegion(), from.getName(), realFrom.getPorts());
-      return from.getName();
+      return createSecurityGroupInRegion(from.getRegion(), from.getName(), realFrom.getVpcId(), realFrom.getPorts());
    }
 
-   private void createSecurityGroupInRegion(String region, String name, int... ports) {
+   private String createSecurityGroupInRegion(String region, final String name, String vpcId, int... ports) {
       checkNotNull(region, "region");
       checkNotNull(name, "name");
       logger.debug(">> creating securityGroup region(%s) name(%s)", region, name);
 
       try {
-         securityApi.createSecurityGroupInRegion(region, name, name);
+         CreateSecurityGroupOptions options = new CreateSecurityGroupOptions();
+         if (vpcId != null) {
+            options.vpcId(vpcId);
+         }
+         String id = securityApi.createSecurityGroupInRegionAndReturnId(region, name, name, options);
          boolean created = securityGroupEventualConsistencyDelay.apply(new RegionAndName(region, name));
          if (!created)
             throw new RuntimeException(String.format("security group %s/%s is not available after creating", region,
@@ -87,12 +92,6 @@ public class AWSEC2CreateSecurityGroupIfNeeded extends CacheLoader<RegionAndName
          logger.debug("<< created securityGroup(%s)", name);
 
          ImmutableSet.Builder<IpPermission> permissions = ImmutableSet.builder();
-         String id;
-         if (name.startsWith("sg-")) {
-            id = name;
-         } else {
-            id = groupNameToId.apply(new RegionAndName(region, name).slashEncode());
-         }
 
          if (ports.length > 0) {
             for (Map.Entry<Integer, Integer> range : getPortRangesFromList(ports).entrySet()) {
@@ -104,7 +103,16 @@ public class AWSEC2CreateSecurityGroupIfNeeded extends CacheLoader<RegionAndName
                                .build());
             }
 
-            String myOwnerId = Iterables.get(securityApi.describeSecurityGroupsInRegion(region, name), 0).getOwnerId();
+            // Use filter (as per `SecurityGroupPresent`, in securityGroupEventualConsistencyDelay)
+            Set<SecurityGroup> securityGroups = securityApi.describeSecurityGroupsInRegionById(region, id);
+            if (securityGroups.isEmpty()) {
+               throw new IllegalStateException(String.format("security group %s/%s not found after creating", region, name));
+            } else if (securityGroups.size() > 1) {
+               throw new IllegalStateException(String.format("multiple security groups matching %s/%s found after creating: %s", 
+                     region, name, securityGroups));
+            }
+            SecurityGroup securityGroup = Iterables.getOnlyElement(securityGroups);
+            String myOwnerId = securityGroup.getOwnerId();
             permissions.add(IpPermission.builder()
                             .fromPort(0)
                             .toPort(65535)
@@ -126,9 +134,10 @@ public class AWSEC2CreateSecurityGroupIfNeeded extends CacheLoader<RegionAndName
             securityApi.authorizeSecurityGroupIngressInRegion(region, id, perms);
             logger.debug("<< authorized securityGroup(%s)", name);
          }
-
+         return id;
       } catch (IllegalStateException e) {
          logger.debug("<< reused securityGroup(%s)", name);
+         return groupNameToId.apply(new RegionAndName(region, name).slashEncode());
       }
    }
 

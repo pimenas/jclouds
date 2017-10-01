@@ -23,6 +23,7 @@ import java.util.Date;
 import java.util.Map;
 
 import org.jclouds.azureblob.domain.BlobProperties;
+import org.jclouds.azureblob.domain.AccessTier;
 import org.jclouds.azureblob.domain.BlobType;
 import org.jclouds.azureblob.domain.LeaseStatus;
 import org.jclouds.io.ContentMetadata;
@@ -37,6 +38,7 @@ import com.google.common.collect.Maps;
 public class BlobPropertiesImpl implements BlobProperties {
 
    private final BlobType type;
+   private final AccessTier tier;
    private final String name;
    private final String container;
    private final URI url;
@@ -46,17 +48,27 @@ public class BlobPropertiesImpl implements BlobProperties {
    private final LeaseStatus leaseStatus;
    private final BaseImmutableContentMetadata contentMetadata;
 
-   public BlobPropertiesImpl(BlobType type, String name, String container, URI url, Date lastModified, String eTag,
+   @Deprecated
+   public BlobPropertiesImpl(BlobType type, String name, String container, URI url, @Nullable Date lastModified, @Nullable String eTag,
             long size, String contentType, @Nullable byte[] contentMD5, @Nullable String contentMetadata,
             @Nullable String contentLanguage, @Nullable Date currentExpires, LeaseStatus leaseStatus, 
             Map<String, String> metadata) {
+      this(type, null, name, container, url, lastModified, eTag, size, contentType, contentMD5, contentMetadata, contentLanguage, currentExpires, leaseStatus, metadata);
+   }
+
+   // TODO: should this take Cache-Control as well?
+   public BlobPropertiesImpl(BlobType type, @Nullable AccessTier tier, String name, String container, URI url, @Nullable Date lastModified, @Nullable String eTag,
+            long size, String contentType, @Nullable byte[] contentMD5, @Nullable String contentMetadata,
+            @Nullable String contentLanguage, @Nullable Date currentExpires, LeaseStatus leaseStatus,
+            Map<String, String> metadata) {
       this.type = checkNotNull(type, "type");
+      this.tier = tier;
       this.leaseStatus = checkNotNull(leaseStatus, "leaseStatus");
       this.name = checkNotNull(name, "name");
       this.container = checkNotNull(container, "container");
       this.url = checkNotNull(url, "url");
-      this.lastModified = checkNotNull(lastModified, "lastModified");
-      this.eTag = checkNotNull(eTag, "eTag");
+      this.lastModified = lastModified;
+      this.eTag = eTag;
       this.contentMetadata = new BaseImmutableContentMetadata(contentType, size, contentMD5, null, contentLanguage,
                contentMetadata, currentExpires);
       this.metadata.putAll(checkNotNull(metadata, "metadata"));
@@ -68,6 +80,11 @@ public class BlobPropertiesImpl implements BlobProperties {
    @Override
    public BlobType getType() {
       return type;
+   }
+
+   @Override
+   public AccessTier getTier() {
+      return tier;
    }
 
    /**

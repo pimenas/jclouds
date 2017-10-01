@@ -16,48 +16,33 @@
  */
 package org.jclouds.aws.s3;
 
-import static com.google.common.hash.Hashing.md5;
 import static org.jclouds.aws.s3.blobstore.options.AWSS3PutOptions.Builder.storageClass;
 import static org.jclouds.s3.options.ListBucketOptions.Builder.withPrefix;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
-import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.Set;
-import java.util.UUID;
-
+import com.google.common.collect.Iterables;
 import org.jclouds.aws.AWSResponseException;
 import org.jclouds.aws.domain.Region;
-import org.jclouds.aws.s3.domain.DeleteResult;
 import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.KeyNotFoundException;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.domain.Location;
-import org.jclouds.io.ByteStreams2;
-import org.jclouds.io.Payload;
-import org.jclouds.io.Payloads;
+import org.jclouds.http.HttpRequest;
+import org.jclouds.http.HttpResponse;
+import org.jclouds.location.predicates.LocationPredicates;
+import org.jclouds.rest.HttpClient;
 import org.jclouds.s3.S3Client;
 import org.jclouds.s3.S3ClientLiveTest;
 import org.jclouds.s3.domain.ListBucketResponse;
 import org.jclouds.s3.domain.ObjectMetadata;
 import org.jclouds.s3.domain.ObjectMetadata.StorageClass;
-import org.jclouds.s3.domain.ObjectMetadataBuilder;
-import org.jclouds.s3.domain.S3Object;
-import org.jclouds.utils.TestUtils;
 import org.testng.ITestContext;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.hash.HashCode;
-import com.google.common.io.ByteSource;
-import com.google.common.io.Files;
 
 /**
  * Tests behavior of {@code S3Client}
@@ -68,8 +53,6 @@ public class AWSS3ClientLiveTest extends S3ClientLiveTest {
       provider = "aws-s3";
    }
 
-   private static final ByteSource oneHundredOneConstitutions = TestUtils.randomByteSource().slice(0, 5 * 1024 * 1024 + 1);
-
    @Override
    public AWSS3Client getApi() {
       return view.unwrapApi(AWSS3Client.class);
@@ -79,70 +62,6 @@ public class AWSS3ClientLiveTest extends S3ClientLiveTest {
    @Override
    public void setUpResourcesOnThisThread(ITestContext testContext) throws Exception {
       super.setUpResourcesOnThisThread(testContext);
-   }
-
-   public void testMultipartSynchronously() throws InterruptedException, IOException {
-      HashCode oneHundredOneConstitutionsMD5 = oneHundredOneConstitutions.hash(md5());
-      String containerName = getContainerName();
-      S3Object object = null;
-      try {
-         String key = "constitution.txt";
-         String uploadId = getApi().initiateMultipartUpload(containerName,
-                  ObjectMetadataBuilder.create().key(key).contentMD5(oneHundredOneConstitutionsMD5.asBytes()).build());
-         byte[] buffer = oneHundredOneConstitutions.read();
-         assertEquals(oneHundredOneConstitutions.size(), (long) buffer.length);
-
-         Payload part1 = Payloads.newPayload(buffer);
-         part1.getContentMetadata().setContentLength((long) buffer.length);
-         part1.getContentMetadata().setContentMD5(oneHundredOneConstitutionsMD5);
-
-         String eTagOf1 = null;
-         try {
-            eTagOf1 = getApi().uploadPart(containerName, key, 1, uploadId, part1);
-         } catch (KeyNotFoundException e) {
-            // note that because of eventual consistency, the upload id may not be present yet
-            // we may wish to add this condition to the retry handler
-
-            // we may also choose to implement ListParts and wait for the uploadId to become
-            // available there.
-            eTagOf1 = getApi().uploadPart(containerName, key, 1, uploadId, part1);
-         }
-
-         String eTag = getApi().completeMultipartUpload(containerName, key, uploadId, ImmutableMap.of(1, eTagOf1));
-
-         assert !eTagOf1.equals(eTag);
-
-         object = getApi().getObject(containerName, key);
-         assertEquals(ByteStreams2.toByteArrayAndClose(object.getPayload().openStream()), buffer);
-
-         // noticing amazon does not return content-md5 header or a parsable ETag after a multi-part
-         // upload is complete:
-         // https://forums.aws.amazon.com/thread.jspa?threadID=61344
-         assertEquals(object.getPayload().getContentMetadata().getContentMD5(), null);
-         assertEquals(getApi().headObject(containerName, key).getContentMetadata().getContentMD5(), null);
-
-      } finally {
-         if (object != null)
-            object.getPayload().close();
-         returnContainer(containerName);
-      }
-   }
-   
-   public void testMultipartChunkedFileStream() throws IOException, InterruptedException {
-      
-      File file = new File("target/const.txt");
-      oneHundredOneConstitutions.copyTo(Files.asByteSink(file));
-      String containerName = getContainerName();
-      
-      try {
-         BlobStore blobStore = view.getBlobStore();
-         blobStore.createContainerInLocation(null, containerName);
-         Blob blob = blobStore.blobBuilder("const.txt").payload(file).build();
-         blobStore.putBlob(containerName, blob, PutOptions.Builder.multipart());
-
-      } finally {
-         returnContainer(containerName);
-      }
    }
 
    public void testPutWithReducedRedundancyStorage() throws InterruptedException {
@@ -220,34 +139,6 @@ public class AWSS3ClientLiveTest extends S3ClientLiveTest {
          assertEquals("InvalidBucketName", e.getError().getCode());
       }
    }
-   
-   public void testDeleteMultipleObjects() throws InterruptedException {
-      String container = getContainerName();
-      try {
-         ImmutableSet.Builder<String> builder = ImmutableSet.builder();
-         for (int i = 0; i < 5; i++) {
-            String key = UUID.randomUUID().toString();
-            
-            Blob blob = view.getBlobStore().blobBuilder(key).payload("").build();
-            view.getBlobStore().putBlob(container, blob);
-            
-            builder.add(key);
-         }
-
-         Set<String> keys = builder.build();
-         DeleteResult result = getApi().deleteObjects(container, keys);
-
-         assertTrue(result.getDeleted().containsAll(keys));
-         assertEquals(result.getErrors().size(), 0);
-
-         for (String key : keys) {
-            assertConsistencyAwareBlobDoesntExist(container, key);
-         }
-         
-      }  finally {
-         returnContainer(container);
-      }
-   }
 
    public void testDirectoryEndingWithSlash() throws InterruptedException {
 	   String containerName = getContainerName();
@@ -267,5 +158,55 @@ public class AWSS3ClientLiveTest extends S3ClientLiveTest {
 	   } finally {
 		   returnContainer(containerName);
 	   }
+   }
+
+   /**
+    * Test signed get/put operations using signature v4. This is done by explicitly
+    * using the "eu-central-1" region which only support signature v4.
+    */
+   public void testV4SignatureOps() throws InterruptedException {
+       String containerName = getScratchContainerName() + "eu";
+	   try {
+           BlobStore blobStore = view.getBlobStore();
+           Location location = Iterables.tryFind(blobStore.listAssignableLocations(),
+               LocationPredicates.idEquals(Region.EU_CENTRAL_1)).orNull();
+           assertNotNull(location);
+           blobStore.createContainerInLocation(location, containerName);
+
+           final HttpClient client = view.utils().http();
+           String blobName = "test-blob";
+           Blob blob = blobStore.blobBuilder(blobName).payload("something").build();
+
+           // Signed put, no timeout.
+           HttpRequest request = view.getSigner().signPutBlob(containerName, blob);
+           assertNotNull(request);
+           HttpResponse response = client.invoke(request);
+           assertEquals(response.getStatusCode(), 200);
+
+           // Signed get, no timeout.
+           request = view.getSigner().signGetBlob(containerName, blobName);
+           assertNotNull(request);
+           response = client.invoke(request);
+           assertEquals(response.getStatusCode(), 200);
+
+           blobStore.removeBlob(containerName, blobName);
+
+           // Signed put with timeout.
+           request = view.getSigner().signPutBlob(containerName, blob, /*seconds=*/ 60);
+           assertNotNull(request);
+           response = client.invoke(request);
+           assertEquals(response.getStatusCode(), 200);
+
+           // Signed get with timeout.
+           request = view.getSigner().signGetBlob(containerName, blobName, /*seconds=*/ 60);
+           assertNotNull(request);
+           response = client.invoke(request);
+           assertEquals(response.getStatusCode(), 200);
+
+           // Cleanup the container.
+           blobStore.removeBlob(containerName, blobName);
+       } finally {
+           destroyContainer(containerName);
+       }
    }
 }

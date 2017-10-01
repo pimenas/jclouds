@@ -30,15 +30,32 @@ public class ContainerToBucketListOptions implements
          Function<ListContainerOptions, ListBucketOptions> {
    public ListBucketOptions apply(ListContainerOptions from) {
       checkNotNull(from, "set options to instance NONE instead of passing null");
+      if (from.getPrefix() != null && from.getDir() != null) {
+         throw new IllegalArgumentException("Cannot set both directory and prefix options");
+      }
+
       ListBucketOptions httpOptions = new ListBucketOptions();
       if (!from.isRecursive()) {
-         httpOptions.delimiter("/");
+         if (from.getDelimiter() != null) {
+            httpOptions.delimiter(from.getDelimiter().toString());
+         } else {
+            httpOptions.delimiter("/");
+         }
       }
       if (from.getDir() != null) {// TODO unit test
          String path = from.getDir();
-         if (!path.endsWith("/"))
-            path = path + "/";
+         if (from.getDelimiter() != null) {
+            if (!path.endsWith(from.getDelimiter().toString())) {
+               path += from.getDelimiter();
+            }
+         } else {
+            if (!path.endsWith("/"))
+               path = path + "/";
+         }
          httpOptions.withPrefix(path);
+      }
+      if (from.getPrefix() != null) {
+         httpOptions.withPrefix(from.getPrefix());
       }
       if (from.getMarker() != null) {
          httpOptions.afterMarker(from.getMarker());

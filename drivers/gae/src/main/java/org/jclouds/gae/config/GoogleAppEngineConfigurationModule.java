@@ -52,7 +52,6 @@ public class GoogleAppEngineConfigurationModule extends AbstractModule {
    /**
     * Used when you are creating multiple contexts in the same app.
     * 
-    * @param currentRequestExecutorService
     * @see CurrentRequestExecutorServiceModule#currentRequestExecutorService
     */
    public GoogleAppEngineConfigurationModule(Module userExecutorModule) {
@@ -81,7 +80,7 @@ public class GoogleAppEngineConfigurationModule extends AbstractModule {
    }
 
    @Provides
-   protected URLFetchService provideURLFetchService() {
+   protected final URLFetchService provideURLFetchService() {
       return URLFetchServiceFactory.getURLFetchService();
    }
 }

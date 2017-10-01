@@ -20,8 +20,8 @@ import java.beans.ConstructorProperties;
 
 import com.google.common.annotations.Beta;
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 
 /**
  * Summary information of e-mail settings and limits for a GleSYS account

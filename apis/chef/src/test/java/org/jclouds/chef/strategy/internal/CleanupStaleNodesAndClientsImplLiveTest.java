@@ -19,7 +19,6 @@ package org.jclouds.chef.strategy.internal;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 
-import org.jclouds.chef.ChefApi;
 import org.jclouds.chef.internal.BaseChefLiveTest;
 import org.testng.annotations.Test;
 
@@ -29,7 +28,7 @@ import com.google.common.collect.ImmutableSet;
  * Tests behavior of {@code CleanupStaleNodesAndClientsImpl} strategies
  */
 @Test(groups = "live", testName = "CleanupStaleNodesAndClientsImplLiveTest")
-public class CleanupStaleNodesAndClientsImplLiveTest extends BaseChefLiveTest<ChefApi> {
+public class CleanupStaleNodesAndClientsImplLiveTest extends BaseChefLiveTest {
 
    private CreateNodeAndPopulateAutomaticAttributesImpl creator;
    private CleanupStaleNodesAndClientsImpl strategy;
@@ -37,6 +36,7 @@ public class CleanupStaleNodesAndClientsImplLiveTest extends BaseChefLiveTest<Ch
    @Override
    protected void initialize() {
       super.initialize();
+      this.prefix = this.prefix + "-" + this.hashCode();
       this.creator = injector.getInstance(CreateNodeAndPopulateAutomaticAttributesImpl.class);
       this.strategy = injector.getInstance(CleanupStaleNodesAndClientsImpl.class);
    }

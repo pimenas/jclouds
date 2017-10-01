@@ -19,6 +19,7 @@ package org.jclouds.cloudstack.parse;
 import java.util.Set;
 
 import org.jclouds.cloudstack.domain.PortForwardingRule;
+import org.jclouds.cloudstack.domain.Tag;
 import org.jclouds.json.BaseSetParserTest;
 import org.jclouds.json.config.GsonModule;
 import org.jclouds.rest.annotations.SelectJson;
@@ -54,12 +55,14 @@ public class ListPortForwardingRulesResponseTest extends BaseSetParserTest<PortF
    public Set<PortForwardingRule> expected() {
       Set<String> cidrs = ImmutableSet.of("0.0.0.0/1", "128.0.0.0/1");
       return ImmutableSet.<PortForwardingRule> of(
-         PortForwardingRule.builder().id("15").privatePort(22).protocol(PortForwardingRule.Protocol.TCP)
-            .publicPort(2022).virtualMachineId("3").virtualMachineName("i-3-3-VM").IPAddressId("3")
-            .IPAddress("72.52.126.32").state(PortForwardingRule.State.ACTIVE).CIDRs(cidrs).build(),
-         PortForwardingRule.builder().id("18").privatePort(22).protocol(PortForwardingRule.Protocol.TCP)
-            .publicPort(22).virtualMachineId("89").virtualMachineName("i-3-89-VM").IPAddressId("34")
-            .IPAddress("72.52.126.63").state(PortForwardingRule.State.ACTIVE).build());
+            PortForwardingRule.builder().id("15").privatePort(22).protocol(PortForwardingRule.Protocol.TCP)
+                  .publicPort(2022).virtualMachineId("3").virtualMachineName("i-3-3-VM").IPAddressId("3")
+                  .IPAddress("72.52.126.32").state(PortForwardingRule.State.ACTIVE)
+                  .CIDRs(cidrs).tags(Tag.builder().account("1").domain("ROOT").domainId("1").key("some-tag").resourceId("15")
+                  .resourceType(Tag.ResourceType.PORT_FORWARDING_RULE).value("some-value").build()).build(),
+            PortForwardingRule.builder().id("18").privatePort(22).protocol(PortForwardingRule.Protocol.TCP)
+                  .publicPort(22).virtualMachineId("89").virtualMachineName("i-3-89-VM").IPAddressId("34")
+                  .IPAddress("72.52.126.63").state(PortForwardingRule.State.ACTIVE).build());
    }
 
 }

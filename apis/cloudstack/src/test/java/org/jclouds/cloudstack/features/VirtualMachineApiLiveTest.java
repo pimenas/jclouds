@@ -46,6 +46,7 @@ import org.jclouds.cloudstack.domain.Zone;
 import org.jclouds.cloudstack.internal.BaseCloudStackApiLiveTest;
 import org.jclouds.cloudstack.options.CreateNetworkOptions;
 import org.jclouds.cloudstack.options.DeployVirtualMachineOptions;
+import org.jclouds.cloudstack.options.UpdateVirtualMachineOptions;
 import org.jclouds.cloudstack.options.ListNetworkOfferingsOptions;
 import org.jclouds.cloudstack.options.ListNetworksOptions;
 import org.jclouds.cloudstack.options.ListTemplatesOptions;
@@ -55,6 +56,7 @@ import org.testng.annotations.AfterGroups;
 import org.testng.annotations.Test;
 
 import com.google.common.base.Function;
+import com.google.common.base.Objects;
 import com.google.common.base.Predicate;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ComparisonChain;
@@ -174,7 +176,7 @@ public class VirtualMachineApiLiveTest extends BaseCloudStackApiLiveTest {
 
    @Test
    public void testCreateVirtualMachine() throws Exception {
-      String defaultTemplate = template != null ? template.getImageId() : null;
+      String defaultTemplate = templateBuilderSpec != null ? templateBuilderSpec.getImageId() : null;
       vm = createVirtualMachine(client, defaultTemplate, jobComplete, virtualMachineRunning);
       if (vm.getPassword() != null) {
          conditionallyCheckSSH();
@@ -188,7 +190,7 @@ public class VirtualMachineApiLiveTest extends BaseCloudStackApiLiveTest {
    public void testCreateVirtualMachineWithSpecificIp() throws Exception {
       skipIfNotGlobalAdmin();
 
-      String defaultTemplate = template != null ? template.getImageId() : null;
+      String defaultTemplate = templateBuilderSpec != null ? templateBuilderSpec.getImageId() : null;
       Network network = null;
 
       try {
@@ -251,7 +253,7 @@ public class VirtualMachineApiLiveTest extends BaseCloudStackApiLiveTest {
 
          boolean hasStaticIpNic = false;
          for (NIC nic : vm.getNICs()) {
-            if (nic.getNetworkId() == network.getId()) {
+            if (Objects.equal(nic.getNetworkId(), network.getId())) {
                hasStaticIpNic = true;
                assertEquals(nic.getIPAddress(), ipAddress);
             }
@@ -320,6 +322,15 @@ public class VirtualMachineApiLiveTest extends BaseCloudStackApiLiveTest {
       assertEquals(vm.getState(), VirtualMachine.State.RUNNING);
    }
 
+   @Test(dependsOnMethods = "testCreateVirtualMachine")
+   public void testVirtualMachineUpdate() throws Exception {
+      UpdateVirtualMachineOptions options = UpdateVirtualMachineOptions.Builder.displayName("updated-name");
+      String job = client.getVirtualMachineApi().updateVirtualMachine(vm.getId(), options);
+      assertTrue(jobComplete.apply(job));
+      vm = client.getVirtualMachineApi().getVirtualMachine(vm.getId());
+      assertEquals(vm.getDisplayName(), "updated-name");
+   }
+
    @AfterGroups(groups = "live")
    @Override
    protected void tearDownContext() {
@@ -334,7 +345,7 @@ public class VirtualMachineApiLiveTest extends BaseCloudStackApiLiveTest {
    public void testListVirtualMachines() throws Exception {
       Set<VirtualMachine> response = client.getVirtualMachineApi().listVirtualMachines();
       assert null != response;
-      assertTrue(response.size() >= 0);
+      assertTrue(response.size() > 0);
       for (VirtualMachine vm : response) {
          VirtualMachine newDetails = getOnlyElement(client.getVirtualMachineApi().listVirtualMachines(
                ListVirtualMachinesOptions.Builder.id(vm.getId())));
@@ -391,7 +402,7 @@ public class VirtualMachineApiLiveTest extends BaseCloudStackApiLiveTest {
          }
 
       }
-      assert vm.getSecurityGroups() != null && vm.getSecurityGroups().size() >= 0 : vm;
+      assert vm.getSecurityGroups() != null && vm.getSecurityGroups().size() > 0 : vm;
       assert vm.getHypervisor() != null : vm;
    }
 }

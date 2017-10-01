@@ -18,6 +18,9 @@ package org.jclouds.blobstore.domain.internal;
 
 import java.util.Date;
 
+import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
+
 import org.jclouds.blobstore.domain.MutableStorageMetadata;
 import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.domain.StorageType;
@@ -32,6 +35,7 @@ public class MutableStorageMetadataImpl extends MutableResourceMetadataImpl<Stor
    private String eTag;
    private Date creationDate;
    private Date lastModified;
+   private Long size;
 
    public MutableStorageMetadataImpl() {
       super();
@@ -41,6 +45,7 @@ public class MutableStorageMetadataImpl extends MutableResourceMetadataImpl<Stor
       super(from);
       this.eTag = from.getETag();
       this.lastModified = from.getLastModified();
+      this.size = from.getSize();
    }
 
    /**
@@ -85,4 +90,43 @@ public class MutableStorageMetadataImpl extends MutableResourceMetadataImpl<Stor
       this.eTag = eTag;
    }
 
+   @Override
+   public Long getSize() {
+      return size;
+   }
+
+   @Override
+   public void setSize(Long size) {
+      this.size = size;
+   }
+
+   @Override
+   public boolean equals(Object object) {
+      if (object == this) {
+         return true;
+      }
+      if (!(object instanceof MutableStorageMetadataImpl)) {
+         return false;
+      }
+      MutableStorageMetadataImpl that = (MutableStorageMetadataImpl) object;
+      return super.equals(that) &&
+            Objects.equal(eTag, that.eTag) &&
+            Objects.equal(creationDate, that.creationDate) &&
+            Objects.equal(lastModified, that.lastModified) &&
+            Objects.equal(size, that.size);
+   }
+
+   @Override
+   public int hashCode() {
+      return Objects.hashCode(super.hashCode(), eTag, creationDate, lastModified, size);
+   }
+
+   @Override
+   protected ToStringHelper string() {
+      return super.string()
+            .add("eTag", eTag)
+            .add("creationDate", creationDate)
+            .add("lastModified", lastModified)
+            .add("size", size);
+   }
 }

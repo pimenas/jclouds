@@ -49,6 +49,7 @@ public class AWSServerErrorRetryHandler extends BackoffLimitedRetryHandler {
    @Override
    public boolean shouldRetryRequest(HttpCommand command, HttpResponse response) {
       switch (response.getStatusCode()) {
+      case 500:  // Internal Server Error
       case 503:  // Service Unavailable
          // Content can be null in the case of HEAD requests
          if (response.getPayload() != null) {
@@ -72,7 +73,7 @@ public class AWSServerErrorRetryHandler extends BackoffLimitedRetryHandler {
    }
 
    public void imposeBackoffExponentialDelay(long period, int pow, int failureCount, int max, String commandDescription) {
-      imposeBackoffExponentialDelay(period, period * 100l, pow, failureCount, max, commandDescription);
+      imposeBackoffExponentialDelay(period, period * 100L, pow, failureCount, max, commandDescription);
    }
 
    

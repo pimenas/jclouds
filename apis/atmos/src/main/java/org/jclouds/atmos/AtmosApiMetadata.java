@@ -16,6 +16,7 @@
  */
 package org.jclouds.atmos;
 
+import static org.jclouds.Constants.PROPERTY_IDEMPOTENT_METHODS;
 import static org.jclouds.blobstore.reference.BlobStoreConstants.PROPERTY_USER_METADATA_PREFIX;
 import static org.jclouds.location.reference.LocationConstants.PROPERTY_REGIONS;
 import static org.jclouds.reflect.Reflection2.typeToken;
@@ -23,14 +24,17 @@ import static org.jclouds.reflect.Reflection2.typeToken;
 import java.net.URI;
 import java.util.Properties;
 
+import org.jclouds.apis.ApiMetadata;
 import org.jclouds.atmos.blobstore.config.AtmosBlobStoreContextModule;
 import org.jclouds.atmos.config.AtmosHttpApiModule;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.rest.internal.BaseHttpApiMetadata;
 
+import com.google.auto.service.AutoService;
 import com.google.common.collect.ImmutableSet;
 import com.google.inject.Module;
 
+@AutoService(ApiMetadata.class)
 public class AtmosApiMetadata extends BaseHttpApiMetadata {
    
    private static Builder builder() {
@@ -54,6 +58,7 @@ public class AtmosApiMetadata extends BaseHttpApiMetadata {
       Properties properties = BaseHttpApiMetadata.defaultProperties();
       properties.setProperty(PROPERTY_REGIONS, "DEFAULT");
       properties.setProperty(PROPERTY_USER_METADATA_PREFIX, "X-Object-Meta-");
+      properties.setProperty(PROPERTY_IDEMPOTENT_METHODS, "DELETE,GET,HEAD,OPTIONS,POST,PUT");
       return properties;
    }
 

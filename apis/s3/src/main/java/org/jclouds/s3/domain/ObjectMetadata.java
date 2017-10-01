@@ -23,7 +23,7 @@ import java.util.Map;
 import org.jclouds.io.ContentMetadata;
 
 /**
- * /** Amazon S3 is designed to store objects. Objects are stored in {@link S3BucketListing buckets}
+ * Amazon S3 is designed to store objects. Objects are stored in {@link S3BucketListing buckets}
  * and consist of a {@link org.jclouds.s3.domain.S3Object#getData() value}, a
  * {@link S3Object#getKey key}, {@link ObjectMetadata#getUserMetadata() metadata}, and an access
  * control policy.
@@ -31,7 +31,7 @@ import org.jclouds.io.ContentMetadata;
 public interface ObjectMetadata extends Comparable<ObjectMetadata> {
 
    public enum StorageClass {
-      STANDARD, REDUCED_REDUNDANCY
+      STANDARD, STANDARD_IA, REDUCED_REDUNDANCY
    }
 
    /**
@@ -63,7 +63,10 @@ public interface ObjectMetadata extends Comparable<ObjectMetadata> {
     * Can be used to specify caching behavior along the request/reply chain.
     * 
     * @link http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html?sec14.9.
+    *
+    * @deprecated call getContentMetadata().getCacheControl() instead
     */
+   @Deprecated
    String getCacheControl();
 
    Date getLastModified();

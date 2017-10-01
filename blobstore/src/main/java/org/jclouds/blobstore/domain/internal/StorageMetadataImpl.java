@@ -23,6 +23,7 @@ import java.util.Date;
 import java.util.Map;
 
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 
 import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.domain.StorageType;
@@ -42,16 +43,28 @@ public class StorageMetadataImpl extends ResourceMetadataImpl<StorageType> imple
    @Nullable
    private final Date lastModified;
    private final StorageType type;
+   @Nullable
+   private final Long size;
 
    public StorageMetadataImpl(StorageType type, @Nullable String id, @Nullable String name,
          @Nullable Location location, @Nullable URI uri, @Nullable String eTag,
          @Nullable Date creationDate, @Nullable Date lastModified,
-         Map<String, String> userMetadata) {
+         Map<String, String> userMetadata, @Nullable Long size) {
       super(id, name, location, uri, userMetadata);
       this.eTag = eTag;
       this.creationDate = creationDate;
       this.lastModified = lastModified;
       this.type = checkNotNull(type, "type");
+      this.size = size;
+   }
+
+   /** @deprecated call StorageMetadataImpl(StorageType.class, String.class, String.class, Location.class, URI.class, String.class, Date.class, Date.class, Map.class, Long.class) */
+   @Deprecated
+   public StorageMetadataImpl(StorageType type, @Nullable String id, @Nullable String name,
+         @Nullable Location location, @Nullable URI uri, @Nullable String eTag,
+         @Nullable Date creationDate, @Nullable Date lastModified,
+         Map<String, String> userMetadata) {
+      this(type, id, name, location, uri, eTag, creationDate, lastModified, userMetadata, null);
    }
 
    /**
@@ -65,7 +78,7 @@ public class StorageMetadataImpl extends ResourceMetadataImpl<StorageType> imple
    @Override
    public int hashCode() {
       return Objects.hashCode(super.hashCode(), eTag, creationDate,
-            lastModified, type);
+            lastModified, type, size);
    }
 
    @Override
@@ -81,7 +94,18 @@ public class StorageMetadataImpl extends ResourceMetadataImpl<StorageType> imple
       if (!Objects.equal(creationDate, other.creationDate)) { return false; }
       if (!Objects.equal(lastModified, other.lastModified)) { return false; }
       if (!Objects.equal(type, other.type)) { return false; }
+      if (!Objects.equal(size, other.size)) { return false; }
       return true;
+   }
+
+   @Override
+   protected ToStringHelper string() {
+      return super.string()
+            .add("eTag", eTag)
+            .add("creationDate", creationDate)
+            .add("lastModified", lastModified)
+            .add("type", type)
+            .add("size", size);
    }
 
    /**
@@ -103,6 +127,11 @@ public class StorageMetadataImpl extends ResourceMetadataImpl<StorageType> imple
    @Override
    public Date getLastModified() {
       return lastModified;
+   }
+
+   @Override
+   public Long getSize() {
+      return size;
    }
 
 }

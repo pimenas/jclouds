@@ -17,8 +17,8 @@
 package org.jclouds.io;
 
 import java.io.Closeable;
-import java.io.InputStream;
 import java.io.IOException;
+import java.io.InputStream;
 
 public interface Payload extends Closeable {
 
@@ -30,7 +30,7 @@ public interface Payload extends Closeable {
    /**
     * Creates a new InputStream object of the payload.
     *
-    * @deprecated see openStream
+    * @deprecated see {@link Payload#openStream()}.
     */
    @Deprecated
    InputStream getInput();
@@ -53,5 +53,17 @@ public interface Payload extends Closeable {
    MutableContentMetadata getContentMetadata();
 
    void setContentMetadata(MutableContentMetadata in);
+
+   /**
+    * Sets whether the payload contains sensitive information. This is used when trying to decide whether to print out the
+    * payload information or not in logs
+    */
+   void setSensitive(boolean isSensitive);
+
+   /**
+    * Returns whether the payload contains sensitive information. This is used when trying to decide whether to print out the
+    * payload information or not in logs
+    */
+   boolean isSensitive();
 
 }

@@ -18,19 +18,21 @@ package org.jclouds.s3;
 
 import static com.google.common.net.HttpHeaders.EXPECT;
 import static org.jclouds.blobstore.attr.BlobScopes.CONTAINER;
-import static org.jclouds.s3.S3Fallbacks.TrueOn404OrNotFoundFalseOnIllegalState;
 
 import java.io.Closeable;
+import java.util.Map;
 import java.util.Set;
 
 import javax.inject.Named;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.GET;
 import javax.ws.rs.HEAD;
+import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 
 import org.jclouds.Fallbacks.VoidOnNotFoundOr404;
@@ -42,6 +44,7 @@ import org.jclouds.blobstore.BlobStoreFallbacks.ThrowKeyNotFoundOn404;
 import org.jclouds.blobstore.attr.BlobScope;
 import org.jclouds.http.functions.ParseETagHeader;
 import org.jclouds.http.options.GetOptions;
+import org.jclouds.io.Payload;
 import org.jclouds.javax.annotation.Nullable;
 import org.jclouds.rest.annotations.BinderParam;
 import org.jclouds.rest.annotations.Endpoint;
@@ -55,16 +58,25 @@ import org.jclouds.rest.annotations.RequestFilters;
 import org.jclouds.rest.annotations.ResponseParser;
 import org.jclouds.rest.annotations.VirtualHost;
 import org.jclouds.rest.annotations.XMLResponseParser;
+import org.jclouds.s3.S3Fallbacks.TrueOn404OrNotFoundFalseOnIllegalState;
 import org.jclouds.s3.binders.BindACLToXMLPayload;
 import org.jclouds.s3.binders.BindAsHostPrefixIfConfigured;
 import org.jclouds.s3.binders.BindBucketLoggingToXmlPayload;
+import org.jclouds.s3.binders.BindCannedAclToRequest;
+import org.jclouds.s3.binders.BindIterableAsPayloadToDeleteRequest;
 import org.jclouds.s3.binders.BindNoBucketLoggingToXmlPayload;
+import org.jclouds.s3.binders.BindObjectMetadataToRequest;
+import org.jclouds.s3.binders.BindPartIdsAndETagsToRequest;
 import org.jclouds.s3.binders.BindPayerToXmlPayload;
 import org.jclouds.s3.binders.BindS3ObjectMetadataToRequest;
 import org.jclouds.s3.domain.AccessControlList;
 import org.jclouds.s3.domain.BucketLogging;
 import org.jclouds.s3.domain.BucketMetadata;
+import org.jclouds.s3.domain.CannedAccessPolicy;
+import org.jclouds.s3.domain.DeleteResult;
 import org.jclouds.s3.domain.ListBucketResponse;
+import org.jclouds.s3.domain.ListMultipartUploadResponse;
+import org.jclouds.s3.domain.ListMultipartUploadsResponse;
 import org.jclouds.s3.domain.ObjectMetadata;
 import org.jclouds.s3.domain.Payer;
 import org.jclouds.s3.domain.S3Object;
@@ -73,9 +85,12 @@ import org.jclouds.s3.filters.RequestAuthorizeSignature;
 import org.jclouds.s3.functions.AssignCorrectHostnameForBucket;
 import org.jclouds.s3.functions.BindRegionToXmlPayload;
 import org.jclouds.s3.functions.DefaultEndpointThenInvalidateRegion;
+import org.jclouds.s3.functions.ETagFromHttpResponseViaRegex;
 import org.jclouds.s3.functions.ObjectKey;
+import org.jclouds.s3.functions.ObjectMetadataKey;
 import org.jclouds.s3.functions.ParseObjectFromHeadersAndHttpContent;
 import org.jclouds.s3.functions.ParseObjectMetadataFromHeaders;
+import org.jclouds.s3.functions.UploadIdFromHttpResponseViaRegex;
 import org.jclouds.s3.options.CopyObjectOptions;
 import org.jclouds.s3.options.ListBucketOptions;
 import org.jclouds.s3.options.PutBucketOptions;
@@ -84,11 +99,16 @@ import org.jclouds.s3.predicates.validators.BucketNameValidator;
 import org.jclouds.s3.xml.AccessControlListHandler;
 import org.jclouds.s3.xml.BucketLoggingHandler;
 import org.jclouds.s3.xml.CopyObjectHandler;
+import org.jclouds.s3.xml.DeleteResultHandler;
 import org.jclouds.s3.xml.ListAllMyBucketsHandler;
 import org.jclouds.s3.xml.ListBucketHandler;
+import org.jclouds.s3.xml.ListMultipartUploadsHandler;
 import org.jclouds.s3.xml.LocationConstraintHandler;
+import org.jclouds.s3.xml.PartIdsFromHttpResponse;
+import org.jclouds.s3.xml.PartIdsFromHttpResponseFull;
 import org.jclouds.s3.xml.PayerHandler;
 
+import com.google.common.annotations.Beta;
 import com.google.inject.Provides;
 
 /**
@@ -193,6 +213,34 @@ public interface S3Client extends Closeable {
    void deleteObject(@Bucket @EndpointParam(parser = AssignCorrectHostnameForBucket.class) @BinderParam(
          BindAsHostPrefixIfConfigured.class) @ParamValidators(BucketNameValidator.class) String bucketName,
          @PathParam("key") String key);
+
+   /**
+    * The Multi-Object Delete operation enables you to delete multiple objects from a bucket using a
+    * single HTTP request. If you know the object keys that you want to delete, then this operation
+    * provides a suitable alternative to sending individual delete requests (see DELETE Object),
+    * reducing per-request overhead.
+    *
+    * The Multi-Object Delete request contains a set of up to 1000 keys that you want to delete.
+    *
+    * If a key does not exist is considered to be deleted.
+    *
+    * The Multi-Object Delete operation supports two modes for the response; verbose and quiet.
+    * By default, the operation uses verbose mode in which the response includes the result of
+    * deletion of each key in your request.
+    *
+    * @param bucketName
+    *           namespace of the objects you are deleting
+    * @param keys
+    *           set of unique keys identifying objects
+    */
+   @Named("DeleteObject")
+   @POST
+   @Path("/")
+   @QueryParams(keys = "delete")
+   @XMLResponseParser(DeleteResultHandler.class)
+   DeleteResult deleteObjects(@Bucket @EndpointParam(parser = AssignCorrectHostnameForBucket.class) @BinderParam(
+         BindAsHostPrefixIfConfigured.class) @ParamValidators(BucketNameValidator.class) String bucketName,
+         @BinderParam(BindIterableAsPayloadToDeleteRequest.class) Iterable<String> keys);
 
    /**
     * Store data by creating or overwriting an object.
@@ -386,6 +434,28 @@ public interface S3Client extends Closeable {
          @BinderParam(BindACLToXMLPayload.class) AccessControlList acl);
 
    /**
+    * Update a bucket's Access Control List settings.
+    * <p/>
+    * A PUT request operation directed at a bucket URI with the "acl" parameter sets the Access
+    * Control List (ACL) settings for that S3 item.
+    * <p />
+    * To set a bucket or object's ACL, you must have WRITE_ACP or FULL_CONTROL access to the item.
+    *
+    * @param bucketName
+    *           the bucket whose Access Control List settings will be updated.
+    * @param acl
+    *           the ACL to apply to the bucket.
+    * @return true if the bucket's Access Control List was updated successfully.
+    */
+   @Named("UpdateBucketCannedAcl")
+   @PUT
+   @Path("/")
+   @QueryParams(keys = "acl")
+   boolean updateBucketCannedACL(@Bucket @EndpointParam(parser = AssignCorrectHostnameForBucket.class) @BinderParam(
+         BindAsHostPrefixIfConfigured.class) @ParamValidators(BucketNameValidator.class) String bucketName,
+         @BinderParam(BindCannedAclToRequest.class) CannedAccessPolicy acl);
+
+   /**
     * A GET request operation directed at an object or bucket URI with the "acl" parameter retrieves
     * the Access Control List (ACL) settings for that S3 item.
     * <p />
@@ -428,6 +498,29 @@ public interface S3Client extends Closeable {
          BindAsHostPrefixIfConfigured.class) @ParamValidators(BucketNameValidator.class) String bucketName,
          @PathParam("key") String key, @BinderParam(BindACLToXMLPayload.class) AccessControlList acl);
 
+   /**
+    * Update an object's Access Control List settings.
+    * <p/>
+    * A PUT request operation directed at an object URI with the "acl" parameter sets the Access
+    * Control List (ACL) settings for that S3 item.
+    * <p />
+    * To set a bucket or object's ACL, you must have WRITE_ACP or FULL_CONTROL access to the item.
+    *
+    * @param bucketName
+    *           the bucket containing the object to be updated
+    * @param key
+    *           the key of the object whose Access Control List settings will be updated.
+    * @param acl
+    *           the ACL to apply to the object.
+    * @return true if the object's Access Control List was updated successfully.
+    */
+   @Named("UpdateObjectCannedAcl")
+   @PUT
+   @QueryParams(keys = "acl")
+   @Path("/{key}")
+   boolean updateObjectCannedACL(@Bucket @EndpointParam(parser = AssignCorrectHostnameForBucket.class) @BinderParam(
+         BindAsHostPrefixIfConfigured.class) @ParamValidators(BucketNameValidator.class) String bucketName,
+         @PathParam("key") String key, @BinderParam(BindCannedAclToRequest.class) CannedAccessPolicy acl);
 
    /**
     * A GET location request operation using a bucket URI lists the location constraint of the
@@ -443,10 +536,10 @@ public interface S3Client extends Closeable {
    @Named("GetBucketLocation")
    @GET
    @QueryParams(keys = "location")
-   @Path("/")
+   @Path("/{bucket}")
    @Endpoint(Bucket.class)
    @XMLResponseParser(LocationConstraintHandler.class)
-   String getBucketLocation(@Bucket @BinderParam(BindAsHostPrefixIfConfigured.class) @ParamValidators(
+   String getBucketLocation(@Bucket @PathParam("bucket") @ParamValidators(
          BucketNameValidator.class) String bucketName);
 
 
@@ -545,4 +638,178 @@ public interface S3Client extends Closeable {
    @Produces(MediaType.TEXT_XML)
    void disableBucketLogging(@Bucket @EndpointParam(parser = AssignCorrectHostnameForBucket.class) @BinderParam(
                BindNoBucketLoggingToXmlPayload.class) @ParamValidators(BucketNameValidator.class) String bucketName);
+
+   /**
+    * This operation initiates a multipart upload and returns an upload ID. This upload ID is used
+    * to associate all the parts in the specific multipart upload. You specify this upload ID in
+    * each of your subsequent upload part requests (see Upload Part). You also include this upload
+    * ID in the final request to either complete or abort the multipart upload request.
+    *
+    * <h4>Note</h4> If you create an object using the multipart upload APIs, currently you cannot
+    * copy the object between regions.
+    *
+    *
+    * @param bucketName
+    *           namespace of the object you are to upload
+    * @param objectMetadata
+    *           metadata around the object you wish to upload
+    * @param options
+    *           controls optional parameters such as canned ACL
+    * @return ID for the initiated multipart upload.
+    */
+   @Named("PutObject")
+   @POST
+   @QueryParams(keys = "uploads")
+   @Path("/{key}")
+   @ResponseParser(UploadIdFromHttpResponseViaRegex.class)
+   String initiateMultipartUpload(@Bucket @EndpointParam(parser = AssignCorrectHostnameForBucket.class) @BinderParam(
+         BindAsHostPrefixIfConfigured.class) @ParamValidators(BucketNameValidator.class) String bucketName,
+         @PathParam("key") @ParamParser(ObjectMetadataKey.class) @BinderParam(BindObjectMetadataToRequest.class)
+         ObjectMetadata objectMetadata, PutObjectOptions... options);
+
+   /**
+    * This operation aborts a multipart upload. After a multipart upload is aborted, no additional
+    * parts can be uploaded using that upload ID. The storage consumed by any previously uploaded
+    * parts will be freed. However, if any part uploads are currently in progress, those part
+    * uploads might or might not succeed. As a result, it might be necessary to abort a given
+    * multipart upload multiple times in order to completely free all storage consumed by all parts.
+    *
+    *
+    * @param bucketName
+    *           namespace of the object you are deleting
+    * @param key
+    *           unique key in the s3Bucket identifying the object
+    * @param uploadId
+    *           id of the multipart upload in progress.
+    */
+   @Named("AbortMultipartUpload")
+   @DELETE
+   @Path("/{key}")
+   @Fallback(VoidOnNotFoundOr404.class)
+   void abortMultipartUpload(@Bucket @EndpointParam(parser = AssignCorrectHostnameForBucket.class) @BinderParam(
+         BindAsHostPrefixIfConfigured.class) @ParamValidators(BucketNameValidator.class) String bucketName,
+         @PathParam("key") String key, @QueryParam("uploadId") String uploadId);
+
+   /**
+    * This operation uploads a part in a multipart upload. You must initiate a multipart upload (see
+    * Initiate Multipart Upload) before you can upload any part. In response to your initiate
+    * request. Amazon S3 returns an upload ID, a unique identifier, that you must include in your
+    * upload part request.
+    *
+    * <p/>
+    * Part numbers can be any number from 1 to 10,000, inclusive. A part number uniquely identifies
+    * a part and also defines its position within the object being created. If you upload a new part
+    * using the same part number that was used with a previous part, the previously uploaded part is
+    * overwritten. Each part must be at least 5 MB in size, except the last part. There is no size
+    * limit on the last part of your multipart upload.
+    *
+    * <p/>
+    * To ensure that data is not corrupted when traversing the network, specify the Content-MD5
+    * header in the upload part request. Amazon S3 checks the part data against the provided MD5
+    * value. If they do not match, Amazon S3 returns an error.
+    *
+    *
+    * @param bucketName
+    *           namespace of the object you are storing
+    * @param key
+    *           unique key in the s3Bucket identifying the object
+    * @param partNumber
+    *           which part is this.
+    * @param uploadId
+    *           id of the multipart upload in progress.
+    * @param part
+    *           contains the data to create or overwrite
+    * @return ETag of the content uploaded
+    */
+   @Named("PutObject")
+   @PUT
+   @Path("/{key}")
+   @ResponseParser(ParseETagHeader.class)
+   String uploadPart(@Bucket @EndpointParam(parser = AssignCorrectHostnameForBucket.class) @BinderParam(
+         BindAsHostPrefixIfConfigured.class) @ParamValidators(BucketNameValidator.class) String bucketName,
+         @PathParam("key") String key, @QueryParam("partNumber") int partNumber,
+         @QueryParam("uploadId") String uploadId, Payload part);
+
+   @Named("UploadPartCopy")
+   @PUT
+   @Path("/{key}")
+   @Headers(keys = {"x-amz-copy-source", "x-amz-copy-source-range"}, values = {"/{sourceBucket}/{sourceObject}", "bytes={startOffset}-{endOffset}"})
+   @ResponseParser(ETagFromHttpResponseViaRegex.class)
+   String uploadPartCopy(@Bucket @EndpointParam(parser = AssignCorrectHostnameForBucket.class) @BinderParam(
+         BindAsHostPrefixIfConfigured.class) @ParamValidators(BucketNameValidator.class) String bucketName,
+         @PathParam("key") String key, @QueryParam("partNumber") int partNumber,
+         @QueryParam("uploadId") String uploadId,
+         @PathParam("sourceBucket") String sourceBucket, @PathParam("sourceObject") String sourceObject,
+         @PathParam("startOffset") long startOffset, @PathParam("endOffset") long endOffset);
+
+   /**
+    *
+    This operation completes a multipart upload by assembling previously uploaded parts.
+    * <p/>
+    * You first initiate the multipart upload and then upload all parts using the Upload Parts
+    * operation (see Upload Part). After successfully uploading all relevant parts of an upload, you
+    * call this operation to complete the upload. Upon receiving this request, Amazon S3
+    * concatenates all the parts in ascending order by part number to create a new object. In the
+    * Complete Multipart Upload request, you must provide the parts list. For each part in the list,
+    * you must provide the part number and the ETag header value, returned after that part was
+    * uploaded.
+    * <p/>
+    * Processing of a Complete Multipart Upload request could take several minutes to complete.
+    * After Amazon S3 begins processing the request, it sends an HTTP response header that specifies
+    * a 200 OK response. While processing is in progress, Amazon S3 periodically sends whitespace
+    * characters to keep the connection from timing out. Because a request could fail after the
+    * initial 200 OK response has been sent, it is important that you check the response body to
+    * determine whether the request succeeded.
+    * <p/>
+    * Note that if Complete Multipart Upload fails, applications should be prepared to retry the
+    * failed requests.
+    *
+    * @param bucketName
+    *           namespace of the object you are deleting
+    * @param key
+    *           unique key in the s3Bucket identifying the object
+    * @param uploadId
+    *           id of the multipart upload in progress.
+    * @param parts
+    *           a map of part id to eTag from the {@link #uploadPart} command.
+    * @return ETag of the content uploaded
+    */
+   @Named("PutObject")
+   @POST
+   @Path("/{key}")
+   @ResponseParser(ETagFromHttpResponseViaRegex.class)
+   String completeMultipartUpload(@Bucket @EndpointParam(parser = AssignCorrectHostnameForBucket.class) @BinderParam(
+         BindAsHostPrefixIfConfigured.class) @ParamValidators(BucketNameValidator.class) String bucketName,
+         @PathParam("key") String key, @QueryParam("uploadId") String uploadId,
+         @BinderParam(BindPartIdsAndETagsToRequest.class) Map<Integer, String> parts);
+
+   /** @deprecated see #listMultipartPartsFull */
+   @Deprecated
+   @Named("ListMultipartParts")
+   @GET
+   @Path("/{key}")
+   @XMLResponseParser(PartIdsFromHttpResponse.class)
+   Map<Integer, String> listMultipartParts(@Bucket @EndpointParam(parser = AssignCorrectHostnameForBucket.class)
+         @BinderParam(BindAsHostPrefixIfConfigured.class) @ParamValidators(BucketNameValidator.class) String bucketName,
+         @PathParam("key") String key, @QueryParam("uploadId") String uploadId);
+
+   @Beta
+   @Named("ListMultipartParts")
+   @GET
+   @Path("/{key}")
+   @XMLResponseParser(PartIdsFromHttpResponseFull.class)
+   Map<Integer, ListMultipartUploadResponse> listMultipartPartsFull(@Bucket @EndpointParam(parser = AssignCorrectHostnameForBucket.class)
+         @BinderParam(BindAsHostPrefixIfConfigured.class) @ParamValidators(BucketNameValidator.class) String bucketName,
+         @PathParam("key") String key, @QueryParam("uploadId") String uploadId);
+
+   @Named("ListMultipartUploads")
+   @GET
+   @Path("/")
+   @QueryParams(keys = "uploads")
+   @XMLResponseParser(ListMultipartUploadsHandler.class)
+   ListMultipartUploadsResponse listMultipartUploads(@Bucket @EndpointParam(parser = AssignCorrectHostnameForBucket.class)
+         @BinderParam(BindAsHostPrefixIfConfigured.class) @ParamValidators(BucketNameValidator.class) String bucketName,
+         @QueryParam("delimiter") @Nullable String delimiter, @QueryParam("max-uploads") @Nullable Integer maxUploads,
+         @QueryParam("key-marker") @Nullable String keyMarker, @QueryParam("prefix") @Nullable String prefix,
+         @QueryParam("upload-id-marker") @Nullable String uploadIdMarker);
 }

@@ -19,18 +19,16 @@ package org.jclouds.rackspace.cloudservers.us.compute;
 import static org.jclouds.compute.util.ComputeServiceUtils.getCores;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNull;
+import static org.testng.Assert.assertTrue;
 
 import java.util.Set;
 
 import org.jclouds.compute.domain.OsFamily;
-import org.jclouds.compute.domain.OsFamilyVersion64Bit;
 import org.jclouds.compute.domain.Template;
 import org.jclouds.compute.internal.BaseTemplateBuilderLiveTest;
 import org.jclouds.openstack.nova.v2_0.compute.options.NovaTemplateOptions;
 import org.testng.annotations.Test;
 
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableSet;
 
 @Test(groups = "live", singleThreaded = true, testName = "CloudServersUSTemplateBuilderLiveTest")
@@ -40,38 +38,12 @@ public class CloudServersUSTemplateBuilderLiveTest extends BaseTemplateBuilderLi
       provider = "rackspace-cloudservers-us";
    }
 
-   @Override
-   protected Predicate<OsFamilyVersion64Bit> defineUnsupportedOperatingSystems() {
-      return Predicates.not(new Predicate<OsFamilyVersion64Bit>() {
-
-         @Override
-         public boolean apply(OsFamilyVersion64Bit input) {
-            switch (input.family) {
-               case UBUNTU:
-                  return (input.version.equals("") || input.version.matches("(10.04)|(12.04)|(12.10)|(13.04)"))
-                           && input.is64Bit;
-               case DEBIAN:
-                  return input.is64Bit && !input.version.equals("5.0");
-               case CENTOS:
-                  return (input.version.equals("") || input.version.matches("(5.0)|(5.6)|(5.8)|(5.9)|(6.0)|(6.2)|(6.3)|(6.4)"))
-                           && input.is64Bit;
-               case WINDOWS:
-                  return input.is64Bit && input.version.equals("");
-               default:
-                  return false;
-            }
-         }
-
-      });
-   }
-
    @Test
    public void testTemplateBuilder() {
       Template defaultTemplate = this.view.getComputeService().templateBuilder().build();
       assertEquals(defaultTemplate.getImage().getOperatingSystem().is64Bit(), true);
-      assertEquals(defaultTemplate.getImage().getOperatingSystem().getVersion(), "12.10");
       assertEquals(defaultTemplate.getImage().getOperatingSystem().getFamily(), OsFamily.UBUNTU);
-      assertEquals(defaultTemplate.getImage().getName(), "Ubuntu 12.10 (Quantal Quetzal)");
+      assertTrue(defaultTemplate.getImage().getName().contains("Ubuntu"));
       assertEquals(defaultTemplate.getImage().getDefaultCredentials().getUser(), "root");
       assertEquals(defaultTemplate.getLocation().getId(), "SYD");
       assertEquals(defaultTemplate.getImage().getLocation().getId(), "SYD");
@@ -83,6 +55,6 @@ public class CloudServersUSTemplateBuilderLiveTest extends BaseTemplateBuilderLi
 
    @Override
    protected Set<String> getIso3166Codes() {
-      return ImmutableSet.<String> of("US-IL", "US-TX", "AU-NSW");
+      return ImmutableSet.of("US-IL", "US-TX", "US-VA", "AU-NSW", "HK");
    }
 }

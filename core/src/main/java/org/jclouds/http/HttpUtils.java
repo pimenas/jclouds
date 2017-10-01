@@ -30,6 +30,7 @@ import static com.google.common.collect.Iterables.size;
 import static com.google.common.collect.Multimaps.filterKeys;
 import static com.google.common.io.BaseEncoding.base64;
 import static com.google.common.io.ByteStreams.toByteArray;
+import static com.google.common.net.HttpHeaders.CACHE_CONTROL;
 import static com.google.common.net.HttpHeaders.CONTENT_DISPOSITION;
 import static com.google.common.net.HttpHeaders.CONTENT_ENCODING;
 import static com.google.common.net.HttpHeaders.CONTENT_LANGUAGE;
@@ -64,7 +65,6 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.ImmutableSet.Builder;
-import com.google.common.io.ByteSource;
 import com.google.common.reflect.Invokable;
 import com.google.inject.Inject;
 
@@ -159,7 +159,7 @@ public class HttpUtils {
    public static byte[] closeClientButKeepContentStream(PayloadEnclosing response) {
       byte[] returnVal = toByteArrayOrNull(response);
       if (returnVal != null && !response.getPayload().isRepeatable()) {
-         Payload newPayload = Payloads.newByteSourcePayload(ByteSource.wrap(returnVal));
+         Payload newPayload = Payloads.newByteArrayPayload(returnVal);
          MutableContentMetadata fromMd = response.getPayload().getContentMetadata();
          MutableContentMetadata toMd = newPayload.getContentMetadata();
          copy(fromMd, toMd);
@@ -169,6 +169,7 @@ public class HttpUtils {
    }
 
    public static void copy(ContentMetadata fromMd, MutableContentMetadata toMd) {
+      toMd.setCacheControl(fromMd.getCacheControl());
       toMd.setContentLength(fromMd.getContentLength());
       toMd.setContentMD5(fromMd.getContentMD5());
       toMd.setContentType(fromMd.getContentType());
@@ -191,6 +192,8 @@ public class HttpUtils {
             logger.debug("%s %s: %s", prefix, header.getKey(), header.getValue());
       }
       if (message.getPayload() != null) {
+         if (message.getPayload().getContentMetadata().getCacheControl() != null)
+            logger.debug("%s %s: %s", prefix, CACHE_CONTROL, message.getPayload().getContentMetadata().getCacheControl());
          if (message.getPayload().getContentMetadata().getContentType() != null)
             logger.debug("%s %s: %s", prefix, CONTENT_TYPE, message.getPayload().getContentMetadata().getContentType());
          if (message.getPayload().getContentMetadata().getContentLength() != null)
@@ -221,6 +224,10 @@ public class HttpUtils {
    }
 
    public void checkRequestHasRequiredProperties(HttpRequest message) {
+      checkArgument(
+            message.getPayload() == null || message.getFirstHeaderOrNull(CACHE_CONTROL) == null,
+            "configuration error please use request.getPayload().getContentMetadata().setCacheControl(value) as opposed to adding a cache control header: %s",
+                  message);
       checkArgument(
             message.getPayload() == null || message.getFirstHeaderOrNull(CONTENT_TYPE) == null,
             "configuration error please use request.getPayload().getContentMetadata().setContentType(value) as opposed to adding a content type header: %s",

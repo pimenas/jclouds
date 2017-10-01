@@ -45,6 +45,7 @@ import static org.jclouds.rest.config.BinderUtils.bindHttpApi;
 import static org.jclouds.util.Throwables2.propagateAuthorizationOrOriginalException;
 
 import java.io.Closeable;
+import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -58,10 +59,10 @@ import org.jclouds.concurrent.config.ConfiguresExecutorService;
 import org.jclouds.concurrent.config.ExecutorServiceModule;
 import org.jclouds.config.BindApiContextWithWildcardExtendsExplicitAndRawType;
 import org.jclouds.config.BindNameToContext;
-import org.jclouds.config.BindPropertiesToExpandedValues;
 import org.jclouds.domain.Credentials;
 import org.jclouds.events.config.ConfiguresEventBus;
 import org.jclouds.events.config.EventBusModule;
+import org.jclouds.functions.ExpandProperties;
 import org.jclouds.http.config.ConfiguresHttpCommandExecutorService;
 import org.jclouds.http.config.JavaUrlHttpCommandExecutorServiceModule;
 import org.jclouds.javax.annotation.Nullable;
@@ -81,6 +82,7 @@ import org.jclouds.rest.config.CredentialStoreModule;
 import org.jclouds.rest.config.HttpApiModule;
 import org.jclouds.rest.config.RestModule;
 import org.jclouds.rest.internal.InvokeHttpMethod;
+import org.jclouds.util.TypeTokenUtils;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -314,7 +316,7 @@ public class ContextBuilder {
 
       Properties resolved = resolveProperties(unexpanded, providerId, keysToResolve, optionalKeys);
 
-      Properties expanded = expandProperties(resolved);
+      Properties expanded = new ExpandProperties().apply(resolved);
 
       Supplier<Credentials> credentialsSupplier = buildCredentialsSupplier(expanded);
 
@@ -351,10 +353,10 @@ public class ContextBuilder {
    
    private Properties currentStateToUnexpandedProperties() {
       Properties defaults = new Properties();
-      defaults.putAll(apiMetadata.getDefaultProperties());
+      putAllAsString(apiMetadata.getDefaultProperties(), defaults);
       defaults.setProperty(PROPERTY_PROVIDER, providerId);
       if (providerMetadata.isPresent()) {
-         defaults.putAll(providerMetadata.get().getDefaultProperties());
+         putAllAsString(providerMetadata.get().getDefaultProperties(), defaults);
          defaults.setProperty(PROPERTY_ISO3166_CODES, Joiner.on(',').join(providerMetadata.get().getIso3166Codes()));
       }
       if (endpoint.isPresent())
@@ -367,19 +369,20 @@ public class ContextBuilder {
       if (credential != null)
          defaults.setProperty(PROPERTY_CREDENTIAL, credential);
       if (overrides.isPresent())
-         defaults.putAll(checkNotNull(overrides.get(), "overrides"));
-      defaults.putAll(propertiesPrefixedWithJcloudsApiOrProviderId(getSystemProperties(), apiMetadata.getId(), providerId));
+         putAllAsString(overrides.get(), defaults);
+      putAllAsString(propertiesPrefixedWithJcloudsApiOrProviderId(getSystemProperties(), apiMetadata.getId(), providerId), defaults);
       return defaults;
+   }
+
+   private static void putAllAsString(Map<?, ?> source, Properties target) {
+      for (Map.Entry<?, ?> entry : source.entrySet()) {
+         target.setProperty(entry.getKey().toString(), entry.getValue().toString());
+      }
    }
 
    @VisibleForTesting
    protected Properties getSystemProperties() {
       return System.getProperties();
-   }
-
-
-   private Properties expandProperties(final Properties resolved) {
-      return Guice.createInjector(GUICE_STAGE, new BindPropertiesToExpandedValues(resolved)).getInstance(Properties.class);
    }
 
    public static Injector buildInjector(String name, ProviderMetadata providerMetadata, Supplier<Credentials> creds, List<Module> inputModules) {
@@ -436,10 +439,14 @@ public class ContextBuilder {
                   @Override
                   public Module apply(Class<? extends Module> arg0) {
                      try {
-                        return arg0.newInstance();
+                        return arg0.getConstructor().newInstance();
                      } catch (InstantiationException e) {
                         throw propagate(e);
                      } catch (IllegalAccessException e) {
+                        throw propagate(e);
+                     } catch (InvocationTargetException e) {
+                        throw propagate(e);
+                     } catch (NoSuchMethodException e) {
                         throw propagate(e);
                      }
                   }
@@ -614,7 +621,7 @@ public class ContextBuilder {
    @SuppressWarnings("unchecked")
    public <C extends Context> C build(TypeToken<C> contextType) {
       TypeToken<C> returnType = null;
-      if (contextType.isAssignableFrom(apiMetadata.getContext()))
+      if (TypeTokenUtils.isSupertypeOf(contextType, apiMetadata.getContext()))
          returnType = (TypeToken<C>) apiMetadata.getContext();
       else
          throw new IllegalArgumentException(String.format("api %s not assignable from %s; context: %s", apiMetadata,

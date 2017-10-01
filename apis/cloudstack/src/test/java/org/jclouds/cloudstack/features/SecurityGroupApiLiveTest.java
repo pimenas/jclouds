@@ -38,6 +38,7 @@ import org.testng.SkipException;
 import org.testng.annotations.AfterGroups;
 import org.testng.annotations.Test;
 
+import com.google.common.base.Objects;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -119,7 +120,7 @@ public class SecurityGroupApiLiveTest extends BaseCloudStackApiLiveTest {
 
          @Override
          public boolean apply(SecurityGroup input) {
-            return input.getId() == group.getId();
+            return Objects.equal(input.getId(), group.getId());
          }
 
       });
@@ -173,7 +174,7 @@ public class SecurityGroupApiLiveTest extends BaseCloudStackApiLiveTest {
    @Test(dependsOnMethods = "testCreateIngress")
    public void testCreateVMInSecurityGroup() throws Exception {
       skipIfSecurityGroupsNotSupported();
-      String defaultTemplate = template != null ? template.getImageId() : null;
+      String defaultTemplate = templateBuilderSpec != null ? templateBuilderSpec.getImageId() : null;
       vm = VirtualMachineApiLiveTest.createVirtualMachineWithSecurityGroupInZone(zone.getId(),
             defaultTemplateOrPreferredInZone(defaultTemplate, client, zone.getId()), group.getId(), client,
             jobComplete, virtualMachineRunning);
@@ -203,7 +204,7 @@ public class SecurityGroupApiLiveTest extends BaseCloudStackApiLiveTest {
    @Test
    public void testCreateVMWithoutSecurityGroupAssignsDefault() throws Exception {
       skipIfSecurityGroupsNotSupported();
-      String defaultTemplate = template != null ? template.getImageId() : null;
+      String defaultTemplate = templateBuilderSpec != null ? templateBuilderSpec.getImageId() : null;
       VirtualMachine newVm = VirtualMachineApiLiveTest.createVirtualMachineWithOptionsInZone(DeployVirtualMachineOptions.NONE,
             zone.getId(), defaultTemplateOrPreferredInZone(defaultTemplate, client, zone.getId()), client,
             jobComplete, virtualMachineRunning);

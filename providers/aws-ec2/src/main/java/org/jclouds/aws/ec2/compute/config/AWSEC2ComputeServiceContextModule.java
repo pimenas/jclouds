@@ -16,14 +16,11 @@
  */
 package org.jclouds.aws.ec2.compute.config;
 
-import static org.jclouds.Constants.PROPERTY_SESSION_INTERVAL;
-
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 
-import javax.inject.Named;
 import javax.inject.Singleton;
 
 import org.jclouds.aws.ec2.compute.AWSEC2TemplateBuilderImpl;
@@ -32,14 +29,13 @@ import org.jclouds.aws.ec2.compute.functions.PresentSpotRequestsAndInstances;
 import org.jclouds.aws.ec2.compute.strategy.AWSEC2CreateNodesInGroupThenAddToSet;
 import org.jclouds.aws.ec2.compute.strategy.AWSEC2DestroyNodeStrategy;
 import org.jclouds.aws.ec2.compute.strategy.AWSEC2GetNodeMetadataStrategy;
+import org.jclouds.aws.ec2.compute.strategy.AWSEC2IOExceptionRetryHandler;
 import org.jclouds.aws.ec2.compute.strategy.AWSEC2ListNodesStrategy;
 import org.jclouds.aws.ec2.compute.strategy.AWSEC2ReviseParsedImage;
 import org.jclouds.aws.ec2.compute.strategy.CreateKeyPairPlacementAndSecurityGroupsAsNeededAndReturnRunOptions;
 import org.jclouds.aws.ec2.compute.suppliers.AWSEC2HardwareSupplier;
 import org.jclouds.compute.config.BaseComputeServiceContextModule;
 import org.jclouds.compute.domain.Image;
-import org.jclouds.compute.extensions.ImageExtension;
-import org.jclouds.compute.extensions.SecurityGroupExtension;
 import org.jclouds.compute.options.TemplateOptions;
 import org.jclouds.ec2.compute.config.EC2BindComputeStrategiesByClass;
 import org.jclouds.ec2.compute.domain.RegionAndName;
@@ -56,10 +52,10 @@ import org.jclouds.ec2.compute.strategy.EC2ListNodesStrategy;
 import org.jclouds.ec2.compute.strategy.ReviseParsedImage;
 import org.jclouds.ec2.compute.suppliers.EC2HardwareSupplier;
 import org.jclouds.ec2.compute.suppliers.RegionAndNameToImageSupplier;
+import org.jclouds.http.IOExceptionRetryHandler;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.rest.suppliers.SetAndThrowAuthorizationExceptionSupplier;
 
-import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
@@ -90,6 +86,7 @@ public class AWSEC2ComputeServiceContextModule extends BaseComputeServiceContext
       bind(PresentInstances.class).to(PresentSpotRequestsAndInstances.class);
       bind(EC2CreateNodesInGroupThenAddToSet.class).to(AWSEC2CreateNodesInGroupThenAddToSet.class);
       bind(RunningInstanceToNodeMetadata.class).to(AWSRunningInstanceToNodeMetadata.class);
+      bind(IOExceptionRetryHandler.class).to(AWSEC2IOExceptionRetryHandler.class);
    }
 
    protected void installDependencies() {
@@ -107,9 +104,8 @@ public class AWSEC2ComputeServiceContextModule extends BaseComputeServiceContext
    // duplicates EC2ComputeServiceContextModule; but that's easiest thing to do with guice; could extract to common util
    // TODO: have a another look at this (Adrian)
    @Override
-   protected Supplier<Set<? extends Image>> supplyNonParsingImageCache(
-            AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
-            final Supplier<Set<? extends Image>> imageSupplier, Injector injector) {
+   protected Supplier<Set<? extends Image>> supplyNonParsingImages(final Supplier<Set<? extends Image>> imageSupplier,
+         Injector injector) {
       final Supplier<LoadingCache<RegionAndName, ? extends Image>> cache = injector.getInstance(Key
                .get(new TypeLiteral<Supplier<LoadingCache<RegionAndName, ? extends Image>>>() {
                }));
@@ -124,6 +120,11 @@ public class AWSEC2ComputeServiceContextModule extends BaseComputeServiceContext
    // duplicates EC2ComputeServiceContextModule; but that's easiest thing to do with guice; could extract to common util
    @Provides
    @Singleton
+   protected final Supplier<CacheLoader<RegionAndName, Image>> guiceProvideRegionAndNameToImageSupplierCacheLoader(
+           final RegionAndIdToImage delegate) {
+      return provideRegionAndNameToImageSupplierCacheLoader(delegate);
+   }
+
    protected Supplier<CacheLoader<RegionAndName, Image>> provideRegionAndNameToImageSupplierCacheLoader(
             final RegionAndIdToImage delegate) {
       return Suppliers.<CacheLoader<RegionAndName, Image>>ofInstance(new CacheLoader<RegionAndName, Image>() {
@@ -149,7 +150,7 @@ public class AWSEC2ComputeServiceContextModule extends BaseComputeServiceContext
 
    @Provides
    @Singleton
-   protected Supplier<LoadingCache<RegionAndName, ? extends Image>> provideRegionAndNameToImageSupplierCache(
+   protected final Supplier<LoadingCache<RegionAndName, ? extends Image>> provideRegionAndNameToImageSupplierCache(
             final RegionAndNameToImageSupplier supplier) {
       return supplier;
    }
@@ -164,15 +165,5 @@ public class AWSEC2ComputeServiceContextModule extends BaseComputeServiceContext
    @Override
    protected TemplateOptions provideTemplateOptions(Injector injector, TemplateOptions options) {
       return options.as(EC2TemplateOptions.class).userData("#cloud-config\nrepo_upgrade: none\n".getBytes());
-   }
-
-   @Override
-   protected Optional<ImageExtension> provideImageExtension(Injector i) {
-      return Optional.of(i.getInstance(ImageExtension.class));
-   }
-
-   @Override
-   protected Optional<SecurityGroupExtension> provideSecurityGroupExtension(Injector i) {
-      return Optional.of(i.getInstance(SecurityGroupExtension.class));
    }
 }

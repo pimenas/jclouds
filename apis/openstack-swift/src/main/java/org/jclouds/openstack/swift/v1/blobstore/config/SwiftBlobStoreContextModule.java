@@ -39,16 +39,16 @@ public class SwiftBlobStoreContextModule extends AbstractModule {
       install(new FactoryModuleBuilder().build(Factory.class));
    }
 
-   interface Factory {
+   public interface Factory {
       RegionScopedSwiftBlobStore create(String in);
    }
 
    @Provides
-   Function<String, BlobStore> blobStore(FactoryFunction in) {
+   final Function<String, BlobStore> blobStore(FactoryFunction in) {
       return in;
    }
 
-   static class FactoryFunction extends ForwardingObject implements Function<String, BlobStore> {
+   public static class FactoryFunction extends ForwardingObject implements Function<String, BlobStore> {
       @Inject
       Factory delegate;
 

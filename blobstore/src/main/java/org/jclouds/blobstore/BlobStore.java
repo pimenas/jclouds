@@ -16,19 +16,31 @@
  */
 package org.jclouds.blobstore;
 
+import java.io.File;
+import java.io.InputStream;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
 
 import org.jclouds.blobstore.domain.Blob;
+import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobBuilder;
 import org.jclouds.blobstore.domain.BlobMetadata;
+import org.jclouds.blobstore.domain.ContainerAccess;
+import org.jclouds.blobstore.domain.MultipartPart;
+import org.jclouds.blobstore.domain.MultipartUpload;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
+import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.blobstore.options.CreateContainerOptions;
 import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.domain.Location;
+import org.jclouds.io.Payload;
 import org.jclouds.javax.annotation.Nullable;
+
+import com.google.common.annotations.Beta;
 
 /**
  * Synchronous access to a BlobStore such as Amazon S3
@@ -40,7 +52,7 @@ public interface BlobStore {
    BlobStoreContext getContext();
 
    /**
-    * 
+    *
     * @return builder for creating new {@link Blob}s
     */
    BlobBuilder blobBuilder(String name);
@@ -66,14 +78,14 @@ public interface BlobStore {
    /**
     * Creates a namespace for your blobs
     * <p/>
-    * 
+    *
     * A container is a namespace for your objects. Depending on the service, the scope can be
     * global, identity, or sub-identity scoped. For example, in Amazon S3, containers are called
     * buckets, and they must be uniquely named such that no-one else in the world conflicts. In
     * other blobstores, the naming convention of the container is less strict. All blobstores allow
     * you to list your containers and also the contents within them. These contents can either be
     * blobs, folders, or virtual paths.
-    * 
+    *
     * @param location
     *           some blobstores allow you to specify a location, such as US-EAST, for where this
     *           container will exist. null will choose a default location
@@ -84,16 +96,22 @@ public interface BlobStore {
    boolean createContainerInLocation(@Nullable Location location, String container);
 
    /**
-    * 
+    *
     * @param options
     *           controls default access control
     * @see #createContainerInLocation(Location,String)
     */
    boolean createContainerInLocation(@Nullable Location location, String container, CreateContainerOptions options);
 
+   @Beta
+   ContainerAccess getContainerAccess(String container);
+
+   @Beta
+   void setContainerAccess(String container, ContainerAccess access);
+
    /**
     * Lists all resources in a container non-recursive.
-    * 
+    *
     * @param container
     *           what to list
     * @return a list that may be incomplete, depending on whether PageSet#getNextMarker is set
@@ -103,7 +121,7 @@ public interface BlobStore {
    /**
     * Like {@link #list(String)} except you can control the size, recursion, and context of the list
     * using {@link ListContainerOptions options}
-    * 
+    *
     * @param container
     *           what to list
     * @param options
@@ -114,7 +132,7 @@ public interface BlobStore {
 
    /**
     * This will delete the contents of a container at its root path without deleting the container
-    * 
+    *
     * @param container
     *           what to clear
     */
@@ -123,7 +141,7 @@ public interface BlobStore {
    /**
     * Like {@link #clearContainer(String)} except you can use options to do things like recursive
     * deletes, or clear at a different path than root.
-    * 
+    *
     * @param container
     *           what to clear
     * @param options
@@ -133,7 +151,7 @@ public interface BlobStore {
 
    /**
     * This will delete everything inside a container recursively.
-    * 
+    *
     * @param container
     *           what to delete
     * @param container name of the container to delete
@@ -150,37 +168,43 @@ public interface BlobStore {
 
    /**
     * Determines if a directory exists
-    * 
+    *
     * @param container
     *           container where the directory resides
     * @param directory
     *           full path to the directory
+    * @deprecated use prefix and delimiter instead
     */
+   @Deprecated
    boolean directoryExists(String container, String directory);
 
    /**
     * Creates a folder or a directory marker depending on the service
-    * 
+    *
     * @param container
     *           container to create the directory in
     * @param directory
     *           full path to the directory
+    * @deprecated use prefix and delimiter instead
     */
+   @Deprecated
    void createDirectory(String container, String directory);
 
    /**
     * Deletes a folder or a directory marker depending on the service
-    * 
+    *
     * @param container
     *           container to delete the directory from
     * @param directory
     *           full path to the directory to delete
+    * @deprecated use prefix and delimiter instead
     */
+   @Deprecated
    void deleteDirectory(String containerName, String name);
 
    /**
     * Determines if a blob exists
-    * 
+    *
     * @param container
     *           container where the blob resides
     * @param directory
@@ -190,7 +214,7 @@ public interface BlobStore {
 
    /**
     * Adds a {@code Blob} representing the data at location {@code container/blob.metadata.name}
-    * 
+    *
     * @param container
     *           container to place the blob.
     * @param blob
@@ -206,7 +230,7 @@ public interface BlobStore {
    /**
     * Adds a {@code Blob} representing the data at location {@code container/blob.metadata.name}
     * options using multipart strategies.
-    * 
+    *
     * @param container
     *           container to place the blob.
     * @param blob
@@ -220,8 +244,21 @@ public interface BlobStore {
    String putBlob(String container, Blob blob, PutOptions options);
 
    /**
+    * Copy blob from one container to another.  Some providers implement this
+    * more efficiently than corresponding getBlob and putBlob operations.
+    *
+    * Note: options are currently ignored
+    *
+    * @return ETag of new blob
+    * @throws ContainerNotFoundException if either container does not exist
+    */
+   @Beta
+   String copyBlob(String fromContainer, String fromName, String toContainer, String toName,
+         CopyOptions options);
+
+   /**
     * Retrieves the metadata of a {@code Blob} at location {@code container/name}
-    * 
+    *
     * @param container
     *           container where this exists.
     * @param name
@@ -230,11 +267,12 @@ public interface BlobStore {
     * @throws ContainerNotFoundException
     *            if the container doesn't exist
     */
+   @Nullable
    BlobMetadata blobMetadata(String container, String name);
 
    /**
     * Retrieves a {@code Blob} representing the data at location {@code container/name}
-    * 
+    *
     * @param container
     *           container where this exists.
     * @param name
@@ -243,11 +281,12 @@ public interface BlobStore {
     * @throws ContainerNotFoundException
     *            if the container doesn't exist
     */
+   @Nullable
    Blob getBlob(String container, String name);
 
    /**
     * Retrieves a {@code Blob} representing the data at location {@code container/name}
-    * 
+    *
     * @param container
     *           container where this exists.
     * @param name
@@ -258,11 +297,12 @@ public interface BlobStore {
     * @throws ContainerNotFoundException
     *            if the container doesn't exist
     */
+   @Nullable
    Blob getBlob(String container, String name, GetOptions options);
 
    /**
     * Deletes a {@code Blob} representing the data at location {@code container/name}
-    * 
+    *
     * @param container
     *           container where this exists.
     * @param name
@@ -271,6 +311,24 @@ public interface BlobStore {
     *            if the container doesn't exist
     */
    void removeBlob(String container, String name);
+
+   /**
+    * Deletes multiple {@code Blob}s representing the data at location {@code container/name}
+    *
+    * @param container
+    *           container where this exists.
+    * @param names
+    *           fully qualified names relative to the container.
+    * @throws ContainerNotFoundException
+    *            if the container doesn't exist
+    */
+   void removeBlobs(String container, Iterable<String> names);
+
+   @Beta
+   BlobAccess getBlobAccess(String container, String name);
+
+   @Beta
+   void setBlobAccess(String container, String name, BlobAccess access);
 
    /**
     * @return a count of all blobs in the container, excluding directory markers
@@ -283,4 +341,43 @@ public interface BlobStore {
     */
    long countBlobs(String container, ListContainerOptions options);
 
+   @Beta
+   MultipartUpload initiateMultipartUpload(String container, BlobMetadata blob, PutOptions options);
+
+   @Beta
+   // TODO: take parts?
+   void abortMultipartUpload(MultipartUpload mpu);
+
+   @Beta
+   String completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts);
+
+   @Beta
+   MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, Payload payload);
+
+   @Beta
+   List<MultipartPart> listMultipartUpload(MultipartUpload mpu);
+
+   @Beta
+   List<MultipartUpload> listMultipartUploads(String container);
+
+   @Beta
+   long getMinimumMultipartPartSize();
+
+   @Beta
+   long getMaximumMultipartPartSize();
+
+   @Beta
+   int getMaximumNumberOfParts();
+
+   @Beta
+   void downloadBlob(String container, String name, File destination);
+
+   @Beta
+   void downloadBlob(String container, String name, File destination, ExecutorService executor);
+
+   @Beta
+   InputStream streamBlob(String container, String name);
+
+   @Beta
+   InputStream streamBlob(String container, String name, ExecutorService executor);
 }

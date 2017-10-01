@@ -55,11 +55,12 @@ import org.jclouds.chef.domain.Role;
 import org.jclouds.chef.domain.Sandbox;
 import org.jclouds.chef.domain.SearchResult;
 import org.jclouds.chef.domain.UploadSandbox;
+import org.jclouds.chef.features.OrganizationApi;
 import org.jclouds.chef.filters.SignedHeaderAuth;
-import org.jclouds.chef.functions.ParseCookbookDefinitionCheckingChefVersion;
-import org.jclouds.chef.functions.ParseCookbookDefinitionFromJsonv10;
-import org.jclouds.chef.functions.ParseCookbookDefinitionListFromJsonv10;
-import org.jclouds.chef.functions.ParseCookbookVersionsCheckingChefVersion;
+import org.jclouds.chef.functions.ParseCookbookDefinitionFromJson;
+import org.jclouds.chef.functions.ParseCookbookDefinitionListFromJson;
+import org.jclouds.chef.functions.ParseCookbookNamesFromJson;
+import org.jclouds.chef.functions.ParseCookbookVersionsFromJson;
 import org.jclouds.chef.functions.ParseKeySetFromJson;
 import org.jclouds.chef.functions.ParseSearchClientsFromJson;
 import org.jclouds.chef.functions.ParseSearchDatabagFromJson;
@@ -71,6 +72,7 @@ import org.jclouds.chef.options.CreateClientOptions;
 import org.jclouds.chef.options.SearchOptions;
 import org.jclouds.io.Payload;
 import org.jclouds.rest.annotations.BinderParam;
+import org.jclouds.rest.annotations.Delegate;
 import org.jclouds.rest.annotations.EndpointParam;
 import org.jclouds.rest.annotations.Fallback;
 import org.jclouds.rest.annotations.Headers;
@@ -85,6 +87,9 @@ import org.jclouds.rest.annotations.SkipEncoding;
 import org.jclouds.rest.annotations.WrapWith;
 import org.jclouds.rest.binders.BindToJsonPayload;
 
+import com.google.common.base.Optional;
+import com.google.inject.Provides;
+
 /**
  * Provides synchronous access to Chef.
  */
@@ -92,6 +97,18 @@ import org.jclouds.rest.binders.BindToJsonPayload;
 @Headers(keys = "X-Chef-Version", values = "{" + Constants.PROPERTY_API_VERSION + "}")
 @Consumes(MediaType.APPLICATION_JSON)
 public interface ChefApi extends Closeable {
+   
+   /**
+    * Provides access to high level Chef features.
+    */
+   @Provides
+   ChefService chefService();
+   
+   /**
+    * Provides access to the organization, user and group management endpoints.
+    */
+   @Delegate
+   Optional<OrganizationApi> organizationApi();
 
    // Clients
 
@@ -110,7 +127,7 @@ public interface ChefApi extends Closeable {
    /**
     * Gets the details of existing client.
     * 
-    * @param clientname The name of the client to get.
+    * @param clientName The name of the client to get.
     * @return The details of the given client.
     */
    @Named("client:get")
@@ -122,7 +139,7 @@ public interface ChefApi extends Closeable {
    /**
     * Creates a new client.
     * 
-    * @param clientname The name of the new client
+    * @param clientName The name of the new client
     * @return The client with the generated private key. This key should be
     *         stored so client can be properly authenticated .
     */
@@ -135,7 +152,7 @@ public interface ChefApi extends Closeable {
    /**
     * Creates a new client with custom options.
     * 
-    * @param clientname The name of the new client
+    * @param clientName The name of the new client
     * @param options The options to customize the client creation.
     * @return The client with the generated private key. This key should be
     *         stored so client can be properly authenticated .
@@ -150,7 +167,7 @@ public interface ChefApi extends Closeable {
     * Generates a new key-pair for this client, and return the new private key in
     * the response body.
     * 
-    * @param clientname The name of the client.
+    * @param clientName The name of the client.
     * @return The details of the client with the new private key.
     */
    @Named("client:generatekey")
@@ -162,7 +179,7 @@ public interface ChefApi extends Closeable {
    /**
     * Deletes the given client.
     * 
-    * @param clientname The name of the client to delete.
+    * @param clientName The name of the client to delete.
     * @return The deleted client.
     */
    @Named("client:delete")
@@ -181,14 +198,14 @@ public interface ChefApi extends Closeable {
    @Named("cookbook:list")
    @GET
    @Path("/cookbooks")
-   @ResponseParser(ParseCookbookDefinitionCheckingChefVersion.class)
+   @ResponseParser(ParseCookbookNamesFromJson.class)
    @Fallback(EmptySetOnNotFoundOr404.class)
    Set<String> listCookbooks();
 
    /**
     * Lists the cookbooks that are available in the given environment.
     * 
-    * @param environmentname The name of the environment to get the cookbooks
+    * @param environmentName The name of the environment to get the cookbooks
     *        from.
     * @return The definitions of the cookbooks (name, URL and versions) available in
     *         the given environment.
@@ -196,7 +213,7 @@ public interface ChefApi extends Closeable {
    @SinceApiVersion("0.10.0")
    @Named("cookbook:list")
    @GET
-   @ResponseParser(ParseCookbookDefinitionListFromJsonv10.class)
+   @ResponseParser(ParseCookbookDefinitionListFromJson.class)
    @Path("/environments/{environmentname}/cookbooks")
    @Fallback(EmptySetOnNotFoundOr404.class)
    Set<CookbookDefinition> listCookbooksInEnvironment(@PathParam("environmentname") String environmentName);
@@ -205,9 +222,9 @@ public interface ChefApi extends Closeable {
     * Lists the cookbooks that are available in the given environment, limiting
     * the number of versions returned for each cookbook.
     * 
-    * @param environmentname The name of the environment to get the cookbooks
+    * @param environmentName The name of the environment to get the cookbooks
     *        from.
-    * @param numversions The number of cookbook versions to include in the
+    * @param numVersions The number of cookbook versions to include in the
     *        response, where n is the number of cookbook versions.
     * @return The definitions of the cookbooks (name, URL and versions) available in
     *         the given environment.
@@ -215,7 +232,7 @@ public interface ChefApi extends Closeable {
    @SinceApiVersion("0.10.0")
    @Named("cookbook:list")
    @GET
-   @ResponseParser(ParseCookbookDefinitionListFromJsonv10.class)
+   @ResponseParser(ParseCookbookDefinitionListFromJson.class)
    @Path("/environments/{environmentname}/cookbooks?num_versions={numversions}")
    @Fallback(EmptySetOnNotFoundOr404.class)
    Set<CookbookDefinition> listCookbooksInEnvironment(@PathParam("environmentname") String environmentName,
@@ -230,7 +247,7 @@ public interface ChefApi extends Closeable {
    @Named("cookbook:versions")
    @GET
    @Path("/cookbooks/{cookbookname}")
-   @ResponseParser(ParseCookbookVersionsCheckingChefVersion.class)
+   @ResponseParser(ParseCookbookVersionsFromJson.class)
    @Fallback(EmptySetOnNotFoundOr404.class)
    Set<String> listVersionsOfCookbook(@PathParam("cookbookname") String cookbookName);
 
@@ -251,15 +268,15 @@ public interface ChefApi extends Closeable {
    /**
     * Gets the definition of the cookbook in the given environment.
     * 
-    * @param environmentname The name of the environment.
-    * @param cookbookname The name of the cookbook.
+    * @param environmentName The name of the environment.
+    * @param cookbookName The name of the cookbook.
     * @return The definition of the cookbook (URL and versions) of the cookbook
     *         in the given environment.
     */
    @SinceApiVersion("0.10.0")
    @Named("environment:cookbook")
    @GET
-   @ResponseParser(ParseCookbookDefinitionFromJsonv10.class)
+   @ResponseParser(ParseCookbookDefinitionFromJson.class)
    @Path("/environments/{environmentname}/cookbooks/{cookbookname}")
    CookbookDefinition getCookbookInEnvironment(@PathParam("environmentname") String environmentName,
          @PathParam("cookbookname") String cookbookName);
@@ -267,9 +284,9 @@ public interface ChefApi extends Closeable {
    /**
     * Gets the definition of the cookbook in the given environment.
     * 
-    * @param environmentname The name of the environment.
-    * @param cookbookname The name of the cookbook.
-    * @param numversions The number of cookbook versions to include in the
+    * @param environmentName The name of the environment.
+    * @param cookbookName The name of the cookbook.
+    * @param numVersions The number of cookbook versions to include in the
     *        response, where n is the number of cookbook versions.
     * @return The definition of the cookbook (URL and versions) of the cookbook
     *         in the given environment.
@@ -277,7 +294,7 @@ public interface ChefApi extends Closeable {
    @SinceApiVersion("0.10.0")
    @Named("environment:cookbook")
    @GET
-   @ResponseParser(ParseCookbookDefinitionFromJsonv10.class)
+   @ResponseParser(ParseCookbookDefinitionFromJson.class)
    @Path("/environments/{environmentname}/cookbooks/{cookbookname}?num_versions={numversions}")
    CookbookDefinition getCookbookInEnvironment(@PathParam("environmentname") String environmentName,
          @PathParam("cookbookname") String cookbookName, @PathParam("numversions") String numVersions);
@@ -285,7 +302,7 @@ public interface ChefApi extends Closeable {
    /**
     * Lists the names of the recipes in the given environment.
     * 
-    * @param environmentname The name of the environment.
+    * @param environmentName The name of the environment.
     * @return The names of the recipes in the given environment.
     */
    @SinceApiVersion("0.10.0")
@@ -388,8 +405,8 @@ public interface ChefApi extends Closeable {
     * Adds an item in a data bag.
     * 
     * @param databagName The name of the data bag.
-    * @param The item to add to the data bag.
-    * @param The item just added to the data bag.
+    * @param databagItem item to add to the data bag.
+    * @return The item just added to the data bag.
     */
    @Named("databag:createitem")
    @POST
@@ -444,7 +461,7 @@ public interface ChefApi extends Closeable {
    /**
     * Gets the details of an existing environment.
     * 
-    * @param environmentname The name of the environment to get.
+    * @param environmentName The name of the environment to get.
     * @return The details of the given environment.
     */
    @SinceApiVersion("0.10.0")
@@ -481,7 +498,7 @@ public interface ChefApi extends Closeable {
    /**
     * Deletes the given environment.
     * 
-    * @param environmentname The name of the environment to delete.
+    * @param environmentName The name of the environment to delete.
     * @return The details of the deleted environment.
     */
    @SinceApiVersion("0.10.0")
@@ -508,7 +525,7 @@ public interface ChefApi extends Closeable {
    /**
     * Lists the names of the nodes in the given environment.
     * 
-    * @param environmentname The name of the environment.
+    * @param environmentName The name of the environment.
     * @return The names of the existing nodes in the given environment.
     */
    @SinceApiVersion("0.10.0")
@@ -522,7 +539,7 @@ public interface ChefApi extends Closeable {
    /**
     * Gets the details of the given node.
     * 
-    * @param nodename The name of the node to get.
+    * @param nodeName The name of the node to get.
     * @return The details of the given node.
     */
    @Named("node:get")
@@ -555,7 +572,7 @@ public interface ChefApi extends Closeable {
    /**
     * Deletes the given node.
     * 
-    * @param nodename The name of the node to delete.
+    * @param nodeName The name of the node to delete.
     * @return The details of the deleted node.
     */
    @Named("node:delete")
@@ -581,7 +598,7 @@ public interface ChefApi extends Closeable {
    /**
     * Gets the details of the given role.
     * 
-    * @param rolename The name of the role to get.
+    * @param roleName The name of the role to get.
     * @return The details of the given role.
     */
    @Named("role:get")
@@ -614,7 +631,7 @@ public interface ChefApi extends Closeable {
    /**
     * Deletes the given role.
     * 
-    * @param rolename The name of the role to delete.
+    * @param roleName The name of the role to delete.
     * @return The details of the deleted role.
     */
    @Named("role:delete")

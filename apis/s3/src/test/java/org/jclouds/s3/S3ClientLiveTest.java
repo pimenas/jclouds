@@ -16,6 +16,9 @@
  */
 package org.jclouds.s3;
 
+import static com.google.common.hash.Hashing.md5;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.jclouds.io.Payloads.newByteArrayPayload;
 import static org.jclouds.s3.options.CopyObjectOptions.Builder.ifSourceETagDoesntMatch;
 import static org.jclouds.s3.options.CopyObjectOptions.Builder.ifSourceETagMatches;
 import static org.jclouds.s3.options.CopyObjectOptions.Builder.ifSourceModifiedSince;
@@ -27,37 +30,55 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
+import static org.testng.Assert.fail;
 
 import java.io.IOException;
 import java.net.URI;
 import java.net.URL;
 import java.util.Date;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.TimeUnit;
 
+import org.jclouds.blobstore.KeyNotFoundException;
+import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.integration.internal.BaseBlobStoreIntegrationTest;
 import org.jclouds.http.HttpResponseException;
+import org.jclouds.io.ByteStreams2;
+import org.jclouds.io.Payload;
 import org.jclouds.s3.domain.AccessControlList;
 import org.jclouds.s3.domain.AccessControlList.CanonicalUserGrantee;
 import org.jclouds.s3.domain.AccessControlList.EmailAddressGrantee;
 import org.jclouds.s3.domain.AccessControlList.GroupGranteeURI;
 import org.jclouds.s3.domain.AccessControlList.Permission;
 import org.jclouds.s3.domain.CannedAccessPolicy;
+import org.jclouds.s3.domain.DeleteResult;
+import org.jclouds.s3.domain.ListMultipartUploadResponse;
+import org.jclouds.s3.domain.ListMultipartUploadsResponse;
 import org.jclouds.s3.domain.ObjectMetadata;
+import org.jclouds.s3.domain.ObjectMetadataBuilder;
 import org.jclouds.s3.domain.S3Object;
 import org.jclouds.s3.options.PutObjectOptions;
 import org.jclouds.util.Strings2;
+import org.jclouds.utils.TestUtils;
 import org.testng.annotations.Test;
 
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import com.google.common.hash.HashCode;
+import com.google.common.io.ByteSource;
 
 @Test(groups = { "integration", "live" })
 public class S3ClientLiveTest extends BaseBlobStoreIntegrationTest {
    public static final String TEST_ACL_ID = "1a405254c932b52e5b5caaa88186bc431a1bacb9ece631f835daddaf0c47677c";
    public static final String TEST_ACL_EMAIL = "james@misterm.org";
    public static final String DEFAULT_OWNER_ID = "abc123";
+   private static final ByteSource oneHundredOneConstitutions = TestUtils.randomByteSource().slice(0, 5 * 1024 * 1024 + 1);
 
    public S3ClientLiveTest() {
       this.provider = "s3";
@@ -91,6 +112,7 @@ public class S3ClientLiveTest extends BaseBlobStoreIntegrationTest {
       return url;
    }
 
+   @Test(groups = {"fails-on-s3proxy"})
    public void testPutCannedAccessPolicyPublic() throws Exception {
       String containerName = getContainerName();
       try {
@@ -110,6 +132,7 @@ public class S3ClientLiveTest extends BaseBlobStoreIntegrationTest {
 
    }
 
+   @Test(groups = {"fails-on-s3proxy"})
    public void testCopyCannedAccessPolicyPublic() throws Exception {
       String containerName = getContainerName();
       String destinationContainer = getContainerName();
@@ -134,6 +157,7 @@ public class S3ClientLiveTest extends BaseBlobStoreIntegrationTest {
    String sourceKey = "apples";
    String destinationKey = "pears";
 
+   @Test(groups = {"fails-on-s3proxy"})
    public void testPublicWriteOnObject() throws InterruptedException, ExecutionException, TimeoutException, IOException {
       final String publicReadWriteObjectKey = "public-read-write-acl";
       final String containerName = getContainerName();
@@ -171,6 +195,7 @@ public class S3ClientLiveTest extends BaseBlobStoreIntegrationTest {
 
    }
 
+   @Test(groups = {"fails-on-s3proxy"})
    public void testUpdateObjectACL() throws InterruptedException, ExecutionException, TimeoutException, IOException {
       String containerName = getContainerName();
       try {
@@ -359,22 +384,25 @@ public class S3ClientLiveTest extends BaseBlobStoreIntegrationTest {
       return etag;
    }
 
-   // TODO: fails on linux and windows
    public void testCopyIfModifiedSince() throws InterruptedException, ExecutionException, TimeoutException, IOException {
       String containerName = getContainerName();
       String destinationContainer = getContainerName();
       try {
-         Date before = new Date();
+         Date before = new Date(System.currentTimeMillis() - 10 * 1000);
          addToContainerAndValidate(containerName, sourceKey + "mod");
-         Date after = new Date(System.currentTimeMillis() + 1000);
+         Date after = new Date(System.currentTimeMillis() + 10 * 1000);
 
          getApi().copyObject(containerName, sourceKey + "mod", destinationContainer, destinationKey,
                   ifSourceModifiedSince(before));
          validateContent(destinationContainer, destinationKey);
 
+         // Sleep since Amazon returns 200 if the date is in the future:
+         // https://forums.aws.amazon.com/message.jspa?messageID=325930
+         TimeUnit.SECONDS.sleep(20);
          try {
             getApi().copyObject(containerName, sourceKey + "mod", destinationContainer, destinationKey,
                      ifSourceModifiedSince(after));
+            fail("should have thrown HttpResponseException");
          } catch (HttpResponseException ex) {
             assertEquals(ex.getResponse().getStatusCode(), 412);
          }
@@ -385,15 +413,14 @@ public class S3ClientLiveTest extends BaseBlobStoreIntegrationTest {
       }
    }
 
-   // TODO: fails on linux and windows
    public void testCopyIfUnmodifiedSince() throws InterruptedException, ExecutionException, TimeoutException,
             IOException {
       String containerName = getContainerName();
       String destinationContainer = getContainerName();
       try {
-         Date before = new Date();
+         Date before = new Date(System.currentTimeMillis() - 10 * 1000);
          addToContainerAndValidate(containerName, sourceKey + "un");
-         Date after = new Date(System.currentTimeMillis() + 1000);
+         Date after = new Date(System.currentTimeMillis() + 10 * 1000);
 
          getApi().copyObject(containerName, sourceKey + "un", destinationContainer, destinationKey,
                   ifSourceUnmodifiedSince(after));
@@ -401,7 +428,8 @@ public class S3ClientLiveTest extends BaseBlobStoreIntegrationTest {
 
          try {
             getApi().copyObject(containerName, sourceKey + "un", destinationContainer, destinationKey,
-                     ifSourceModifiedSince(before));
+                     ifSourceUnmodifiedSince(before));
+            fail("should have thrown HttpResponseException");
          } catch (HttpResponseException ex) {
             assertEquals(ex.getResponse().getStatusCode(), 412);
          }
@@ -479,6 +507,130 @@ public class S3ClientLiveTest extends BaseBlobStoreIntegrationTest {
       }
    }
 
+   public void testMultipartSynchronously() throws InterruptedException, IOException {
+      HashCode oneHundredOneConstitutionsMD5 = oneHundredOneConstitutions.hash(md5());
+      String containerName = getContainerName();
+      S3Object object = null;
+      try {
+         String key = "constitution.txt";
+         String uploadId = getApi().initiateMultipartUpload(containerName,
+                  ObjectMetadataBuilder.create().key(key).contentMD5(oneHundredOneConstitutionsMD5.asBytes()).build());
+         assertThat(getApi().listMultipartPartsFull(containerName, key, uploadId)).isEmpty();
+
+         byte[] buffer = oneHundredOneConstitutions.read();
+         assertEquals(oneHundredOneConstitutions.size(), (long) buffer.length);
+
+         Payload part1 = newByteArrayPayload(buffer);
+         part1.getContentMetadata().setContentLength((long) buffer.length);
+         part1.getContentMetadata().setContentMD5(oneHundredOneConstitutionsMD5);
+
+         String eTagOf1 = null;
+         try {
+            eTagOf1 = getApi().uploadPart(containerName, key, 1, uploadId, part1);
+         } catch (KeyNotFoundException e) {
+            // note that because of eventual consistency, the upload id may not be present yet
+            // we may wish to add this condition to the retry handler
+
+            // we may also choose to implement ListParts and wait for the uploadId to become
+            // available there.
+            eTagOf1 = getApi().uploadPart(containerName, key, 1, uploadId, part1);
+         }
+         Map<Integer, ListMultipartUploadResponse> map = getApi().listMultipartPartsFull(containerName, key, uploadId);
+         assertThat(map).containsOnlyKeys(1);
+         assertThat(map.get(1).eTag()).isEqualTo(eTagOf1);
+
+         getApi().completeMultipartUpload(containerName, key, uploadId, ImmutableMap.of(1, eTagOf1));
+
+         object = getApi().getObject(containerName, key);
+         assertEquals(ByteStreams2.toByteArrayAndClose(object.getPayload().openStream()), buffer);
+      } finally {
+         if (object != null)
+            object.getPayload().close();
+         returnContainer(containerName);
+      }
+   }
+
+   public void testMultipartCopy() throws Exception {
+      String containerName = getContainerName();
+      try {
+         String fromObject = "fromObject";
+         S3Object object = getApi().newS3Object();
+         object.getMetadata().setKey(fromObject);
+         object.setPayload(oneHundredOneConstitutions);
+         object.getMetadata().getContentMetadata().setContentLength(oneHundredOneConstitutions.size());
+         getApi().putObject(containerName, object);
+
+         String toObject = "toObject";
+         String uploadId = getApi().initiateMultipartUpload(containerName, ObjectMetadataBuilder.create().key(toObject).build());
+
+         String eTagOf1 = getApi().uploadPartCopy(containerName, toObject, 1, uploadId, containerName, fromObject, 1, oneHundredOneConstitutions.size() - 1);
+
+         getApi().completeMultipartUpload(containerName, toObject, uploadId, ImmutableMap.of(1, eTagOf1));
+
+         object = getApi().getObject(containerName, toObject);
+         assertEquals(ByteStreams2.toByteArrayAndClose(object.getPayload().openStream()), oneHundredOneConstitutions.slice(1, oneHundredOneConstitutions.size() - 1).read());
+      } finally {
+         returnContainer(containerName);
+      }
+   }
+
+   public void testListMultipartUploads() throws Exception {
+      String containerName = getContainerName();
+      String key = "testListMultipartUploads";
+      String uploadId = null;
+      try {
+         ListMultipartUploadsResponse response = getApi().listMultipartUploads(containerName, null, null, null, null, null);
+         assertThat(response.bucket()).isEqualTo(containerName);
+         assertThat(response.isTruncated()).isFalse();
+         assertThat(response.uploads()).isEmpty();
+
+         uploadId = getApi().initiateMultipartUpload(containerName, ObjectMetadataBuilder.create().key(key).build());
+
+         response = getApi().listMultipartUploads(containerName, null, null, null, null, null);
+         assertThat(response.bucket()).isEqualTo(containerName);
+         assertThat(response.isTruncated()).isFalse();
+         assertThat(response.uploads()).hasSize(1);
+
+         ListMultipartUploadsResponse.Upload upload = response.uploads().get(0);
+         assertThat(upload.key()).isEqualTo(key);
+         assertThat(upload.uploadId()).isEqualTo(uploadId);
+         assertThat(upload.storageClass()).isEqualTo(ObjectMetadata.StorageClass.STANDARD);
+      } finally {
+         if (uploadId != null) {
+            getApi().abortMultipartUpload(containerName, key, uploadId);
+         }
+         returnContainer(containerName);
+      }
+   }
+
+   public void testDeleteMultipleObjects() throws InterruptedException {
+      String container = getContainerName();
+      try {
+         ImmutableSet.Builder<String> builder = ImmutableSet.builder();
+         for (int i = 0; i < 5; i++) {
+            String key = UUID.randomUUID().toString();
+
+            Blob blob = view.getBlobStore().blobBuilder(key).payload("").build();
+            view.getBlobStore().putBlob(container, blob);
+
+            builder.add(key);
+         }
+
+         Set<String> keys = builder.build();
+         DeleteResult result = getApi().deleteObjects(container, keys);
+
+         assertTrue(result.getDeleted().containsAll(keys));
+         assertEquals(result.getErrors().size(), 0);
+
+         for (String key : keys) {
+            assertConsistencyAwareBlobDoesntExist(container, key);
+         }
+
+      } finally {
+         returnContainer(container);
+      }
+   }
+
    private void checkGrants(AccessControlList acl) {
       String ownerId = acl.getOwner().getId();
 
@@ -498,4 +650,42 @@ public class S3ClientLiveTest extends BaseBlobStoreIntegrationTest {
       acl.addPermission(new CanonicalUserGrantee(ownerId), Permission.WRITE_ACP);
    }
 
+   public void testUpdateBucketCannedACL() throws Exception {
+      String containerName = getContainerName();
+      try {
+         getApi().updateBucketCannedACL(containerName, CannedAccessPolicy.PUBLIC_READ);
+         AccessControlList acl = getApi().getBucketACL(containerName);
+         assertThat(acl.hasPermission(GroupGranteeURI.ALL_USERS, Permission.READ)).isTrue();
+
+         getApi().updateBucketCannedACL(containerName, CannedAccessPolicy.PRIVATE);
+         acl = getApi().getBucketACL(containerName);
+         assertThat(acl.hasPermission(GroupGranteeURI.ALL_USERS, Permission.READ)).isFalse();
+      } finally {
+         recycleContainerAndAddToPool(containerName);
+      }
+   }
+
+   public void testUpdateObjectCannedACL() throws Exception {
+      String containerName = getContainerName();
+      try {
+         String key = "testUpdateObjectCannedACL";
+         S3Object object = getApi().newS3Object();
+         object.getMetadata().setKey(key);
+         object.setPayload(TEST_STRING);
+         getApi().putObject(containerName, object);
+
+         getApi().updateObjectCannedACL(containerName, key, CannedAccessPolicy.PUBLIC_READ);
+         AccessControlList acl = getApi().getObjectACL(containerName, key);
+         assertThat(acl.hasPermission(GroupGranteeURI.ALL_USERS, Permission.READ)).isTrue();
+
+         getApi().updateObjectCannedACL(containerName, key, CannedAccessPolicy.PRIVATE);
+         acl = getApi().getObjectACL(containerName, key);
+         assertThat(acl.hasPermission(GroupGranteeURI.ALL_USERS, Permission.READ)).isFalse();
+
+         object = getApi().getObject(containerName, key);
+         assertThat(Strings2.toStringAndClose(object.getPayload().openStream())).isEqualTo(TEST_STRING);
+      } finally {
+         returnContainer(containerName);
+      }
+   }
 }

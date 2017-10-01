@@ -23,6 +23,7 @@ import static com.google.common.collect.Iterables.tryFind;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
 import java.util.Arrays;
 import java.util.Collection;
@@ -49,7 +50,7 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
 
 /**
  * Utilities that allow access to {@link Invokable}s with {@link Invokable#getOwnerType() owner types}.
- * 
+ *
  * @since 1.6
  */
 @Beta
@@ -73,12 +74,12 @@ public class Reflection2 {
 
    /**
     * returns an {@link Invokable} object that reflects a constructor present in the {@link TypeToken} type.
-    * 
+    *
     * @param ownerType
     *           corresponds to {@link Invokable#getOwnerType()}
     * @param parameterTypes
     *           corresponds to {@link Constructor#getParameterTypes()}
-    * 
+    *
     * @throws IllegalArgumentException
     *            if the constructor doesn't exist or a security exception occurred
     */
@@ -89,8 +90,8 @@ public class Reflection2 {
    }
 
    /**
-    * return all constructors present in the class as {@link Invokable}s.
-    * 
+    * return all constructors or static factory methods present in the class as {@link Invokable}s.
+    *
     * @param ownerType
     *           corresponds to {@link Invokable#getOwnerType()}
     */
@@ -101,7 +102,7 @@ public class Reflection2 {
 
    /**
     * returns an {@link Invokable} object that links the {@code method} to its owner.
-    * 
+    *
     * @param ownerType
     *           corresponds to {@link Invokable#getOwnerType()}
     * @param method
@@ -116,14 +117,14 @@ public class Reflection2 {
     * returns an {@link Invokable} object that reflects a method present in the {@link TypeToken} type.
     * If there are multiple methods of the same name and parameter list, returns the method in the nearest
     * ancestor with the most specific return type (see {@link Class#getDeclaredMethod}).
-    * 
+    *
     * @param ownerType
     *           corresponds to {@link Invokable#getOwnerType()}
     * @param name
     *           name of the method to be returned
     * @param parameterTypes
     *           corresponds to {@link Method#getParameterTypes()}
-    * 
+    *
     * @throws IllegalArgumentException
     *            if the method doesn't exist or a security exception occurred
     */
@@ -135,7 +136,7 @@ public class Reflection2 {
 
    /**
     * return all methods present in the class as {@link Invokable}s.
-    * 
+    *
     * @param ownerType
     *           corresponds to {@link Invokable#getOwnerType()}
     */
@@ -145,7 +146,8 @@ public class Reflection2 {
    }
 
    /**
-    * this gets all declared constructors, not just public ones. makes them accessible, as well.
+    * This gets all declared constructors or factory methods on abstract types, not just public ones, and makes them
+    * accessible.
     */
    private static LoadingCache<TypeToken<?>, Set<Invokable<?, ?>>> constructorsForTypeToken = CacheBuilder
          .newBuilder().build(new CacheLoader<TypeToken<?>, Set<Invokable<?, ?>>>() {
@@ -154,6 +156,15 @@ public class Reflection2 {
                for (Constructor<?> ctor : key.getRawType().getDeclaredConstructors()) {
                   ctor.setAccessible(true);
                   builder.add(key.constructor(ctor));
+               }
+               // Look for factory methods, if this is an abstract type.
+               if (Modifier.isAbstract(key.getRawType().getModifiers())) {
+                  for (Invokable<?, Object> method : methods(key.getRawType())){
+                     if (method.isStatic() && method.getReturnType().equals(key)) {
+                        method.setAccessible(true);
+                        builder.add(method);
+                     }
+                  }
                }
                return builder.build();
             }
@@ -206,7 +217,7 @@ public class Reflection2 {
 
    /**
     * Returns the {@link Parameter}s associated with the given {@link Invokable}. This function is backed by a cache.
-    * 
+    *
     * @param invokable
     *           The {@link Invokable} we want to get Parameters from
     */
@@ -248,7 +259,7 @@ public class Reflection2 {
                Set<Invokable<?, ?>> methods = get(methodsForTypeToken, key.type);
                /*
                 * There may be multiple instances, even on the most immediate ancestor,
-                * of a method with the required name and parameter set. This will occur 
+                * of a method with the required name and parameter set. This will occur
                 * if the method overrides one declared in a parent class with a less specific
                 * return type. These bridge methods inserted by the compiler will be marked
                 * as "synthetic".

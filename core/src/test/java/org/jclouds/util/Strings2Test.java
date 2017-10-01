@@ -27,22 +27,6 @@ import com.google.common.collect.ImmutableMap;
 @Test(groups = "unit")
 public class Strings2Test {
 
-   public void testIsEncoded() {
-      assert Strings2.isUrlEncoded("/read-tests/%73%6f%6d%65%20%66%69%6c%65");
-      assert !Strings2.isUrlEncoded("/read-tests/ tep");
-   }
-
-   public void testNoDoubleEncode() {
-      assertEquals(urlEncode("/read-tests/%73%6f%6d%65%20%66%69%6c%65", '/'),
-            "/read-tests/%73%6f%6d%65%20%66%69%6c%65");
-      assertEquals(urlEncode("/read-tests/ tep", '/'), "/read-tests/%20tep");
-   }
-
-   public void testNoDoubleDecode() {
-      assertEquals(urlDecode("foo%20bar%2Bbaz"), "foo bar+baz");
-      assertEquals(urlDecode("foo bar+baz"), "foo bar+baz");
-   }
-
    public void testReplaceTokens() {
       assertEquals(Strings2.replaceTokens("hello {where}", ImmutableMap.of("where", "world")), "hello world");
    }
@@ -58,9 +42,25 @@ public class Strings2Test {
    public void testIsCidrFormat() {
       assert Strings2.isCidrFormat("1.2.3.4/5");
       assert Strings2.isCidrFormat("0.0.0.0/0");
+      assert Strings2.isCidrFormat("fe80::/64");
+      assert Strings2.isCidrFormat("fdcf:11a8:b89f::/64");
+      assert Strings2.isCidrFormat("fe80:fd6d:96a8:b89f:abcd:11aa:1234:15af");
+
+      for (int n = 0; n <= 128; n = n + 1) {
+         assert Strings2.isCidrFormat("fe80:fd6d:96a8:b89f:abcd:11aa:1234:15af/" + n);
+      }
+
+      assert !Strings2.isCidrFormat("fe80:fd6d:96a8:b89f:abcd:11aa:1234:15af/129");
+      assert !Strings2.isCidrFormat("fe80:fd6d:96a8:b89f:abcd:11aa:1234:15af/b");
+      assert !Strings2.isCidrFormat("fe80:fd6d:96a8:b89f:abcd:11aa:1234:15af/*");
+      assert !Strings2.isCidrFormat("fe80:fd6d:96a8:b89f:abcd:11aa:1234:15af/@");
+      assert !Strings2.isCidrFormat("fe80:fd6d:96a8:b89f:abcd:11aa:1234:15af/00");
+      assert !Strings2.isCidrFormat("fe80:fd6d:96a8:b89f:abcd:11aa:1234:15af/01");
+      assert !Strings2.isCidrFormat("fe80:fd6d:96a8:b89f:abcd:11aa:1234:15af/");
+
       assert !Strings2.isCidrFormat("banana");
       assert !Strings2.isCidrFormat("1.2.3.4");
       assert !Strings2.isCidrFormat("500.500.500.500/2423");
    }
-      
+
 }

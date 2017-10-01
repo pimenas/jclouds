@@ -20,19 +20,26 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Throwables.getCausalChain;
 import static com.google.common.base.Throwables.propagate;
-import static com.google.common.collect.Iterables.find;
 import static com.google.common.collect.Iterables.size;
 import static com.google.common.collect.Iterables.transform;
+import static com.google.common.collect.Iterables.tryFind;
 import static com.google.common.collect.Sets.filter;
 import static com.google.common.collect.Sets.newTreeSet;
 import static org.jclouds.blobstore.options.ListContainerOptions.Builder.recursive;
 
-import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.SequenceInputStream;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.SortedSet;
-import java.util.regex.Pattern;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 
 import javax.annotation.Resource;
 import javax.inject.Inject;
@@ -44,8 +51,13 @@ import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.KeyNotFoundException;
 import org.jclouds.blobstore.LocalStorageStrategy;
 import org.jclouds.blobstore.domain.Blob;
+import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobBuilder;
+import org.jclouds.blobstore.domain.BlobBuilder.PayloadBlobBuilder;
 import org.jclouds.blobstore.domain.BlobMetadata;
+import org.jclouds.blobstore.domain.ContainerAccess;
+import org.jclouds.blobstore.domain.MultipartPart;
+import org.jclouds.blobstore.domain.MultipartUpload;
 import org.jclouds.blobstore.domain.MutableBlobMetadata;
 import org.jclouds.blobstore.domain.MutableStorageMetadata;
 import org.jclouds.blobstore.domain.PageSet;
@@ -53,12 +65,11 @@ import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.domain.StorageType;
 import org.jclouds.blobstore.domain.internal.MutableStorageMetadataImpl;
 import org.jclouds.blobstore.domain.internal.PageSetImpl;
-import org.jclouds.blobstore.domain.internal.StorageMetadataImpl;
+import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.blobstore.options.CreateContainerOptions;
 import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.strategy.IfDirectoryReturnNameStrategy;
 import org.jclouds.blobstore.util.BlobStoreUtils;
 import org.jclouds.blobstore.util.BlobUtils;
 import org.jclouds.collect.Memoized;
@@ -73,15 +84,25 @@ import org.jclouds.io.ContentMetadata;
 import org.jclouds.io.ContentMetadataCodec;
 import org.jclouds.io.Payload;
 import org.jclouds.logging.Logger;
+import org.jclouds.util.Closeables2;
 
 import com.google.common.base.Function;
+import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
+import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.base.Throwables;
+import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Iterators;
+import com.google.common.io.ByteSource;
+import com.google.common.net.HttpHeaders;
 
 @Singleton
 public final class LocalBlobStore implements BlobStore {
+   private static final String MULTIPART_PREFIX = ".mpus-";
 
    @Resource
    private Logger logger = Logger.NULL;
@@ -90,7 +111,6 @@ public final class LocalBlobStore implements BlobStore {
    private final BlobUtils blobUtils;
    private final Supplier<Set<? extends Location>> locations;
    private final ContentMetadataCodec contentMetadataCodec;
-   private final IfDirectoryReturnNameStrategy ifDirectoryReturnName;
    private final Blob.Factory blobFactory;
    private final LocalStorageStrategy storageStrategy;
 
@@ -99,14 +119,12 @@ public final class LocalBlobStore implements BlobStore {
          BlobUtils blobUtils,
          @Memoized Supplier<Set<? extends Location>> locations,
          ContentMetadataCodec contentMetadataCodec,
-         IfDirectoryReturnNameStrategy ifDirectoryReturnName,
          Blob.Factory blobFactory, LocalStorageStrategy storageStrategy) {
       this.context = checkNotNull(context, "context");
       this.blobUtils = checkNotNull(blobUtils, "blobUtils");
       this.locations = checkNotNull(locations, "locations");
       this.blobFactory = blobFactory;
       this.contentMetadataCodec = contentMetadataCodec;
-      this.ifDirectoryReturnName = ifDirectoryReturnName;
       this.storageStrategy = storageStrategy;
    }
 
@@ -200,6 +218,13 @@ public final class LocalBlobStore implements BlobStore {
     */
    @Override
    public PageSet<? extends StorageMetadata> list(final String containerName, ListContainerOptions options) {
+      if (options.getDir() != null && options.getPrefix() != null) {
+         throw new IllegalArgumentException("Cannot set both prefix and directory");
+      }
+
+      if ((options.getDir() != null || options.isRecursive()) && (options.getDelimiter() != null)) {
+         throw new IllegalArgumentException("Cannot set the delimiter if directory or recursive is set");
+      }
 
       // Check if the container exists
       if (!storageStrategy.containerExists(containerName))
@@ -214,73 +239,65 @@ public final class LocalBlobStore implements BlobStore {
          propagate(e);
       }
 
-      SortedSet<StorageMetadata> contents = newTreeSet(transform(blobBelongingToContainer,
-            new Function<String, StorageMetadata>() {
+      blobBelongingToContainer = Iterables.filter(blobBelongingToContainer,
+            new Predicate<String>() {
+               @Override
+               public boolean apply(String key) {
+                  // ignore folders
+                  return storageStrategy.blobExists(containerName, key);
+               }
+            });
+      SortedSet<StorageMetadata> contents = newTreeSet(FluentIterable.from(blobBelongingToContainer)
+            .transform(new Function<String, StorageMetadata>() {
+               @Override
                public StorageMetadata apply(String key) {
-                  if (!storageStrategy.blobExists(containerName, key)) {
-                     // handle directory
-                     return new StorageMetadataImpl(StorageType.FOLDER, /*id=*/ null, key,
-                           /*location=*/ null, /*uri=*/ null, /*eTag=*/ null, /*creationDate=*/ null,
-                           /*lastModified=*/ null, ImmutableMap.<String, String>of());
-                  }
                   Blob oldBlob = loadBlob(containerName, key);
-                  checkState(oldBlob != null, "blob " + key + " is not present although it was in the list of "
-                        + containerName);
+                  if (oldBlob == null) {
+                     return null;
+                  }
                   checkState(oldBlob.getMetadata() != null, "blob " + containerName + "/" + key + " has no metadata");
                   MutableBlobMetadata md = BlobStoreUtils.copy(oldBlob.getMetadata());
-                  String directoryName = ifDirectoryReturnName.execute(md);
-                  if (directoryName != null) {
-                     md.setName(directoryName);
-                     md.setType(StorageType.RELATIVE_PATH);
-                  }
+                  md.setSize(oldBlob.getMetadata().getSize());
                   return md;
                }
-            }));
+            })
+            .filter(Predicates.<StorageMetadata>notNull()));
 
       String marker = null;
       if (options != null) {
+         if (options.getDir() != null && !options.getDir().isEmpty()) {
+            contents = filterDirectory(contents, options);
+         } else if (!Strings.isNullOrEmpty(options.getPrefix())) {
+            contents = filterPrefix(contents, options);
+         } else if (!options.isRecursive() || (options.getDelimiter() != null)) {
+            String delimiter = options.getDelimiter() == null ? storageStrategy.getSeparator() : options.getDelimiter();
+            contents = extractCommonPrefixes(contents, delimiter, null);
+         }
+
          if (options.getMarker() != null) {
             final String finalMarker = options.getMarker();
-            StorageMetadata lastMarkerMetadata = find(contents, new Predicate<StorageMetadata>() {
+            String delimiter = storageStrategy.getSeparator();
+            Optional<StorageMetadata> lastMarkerMetadata = tryFind(contents, new Predicate<StorageMetadata>() {
                public boolean apply(StorageMetadata metadata) {
                   return metadata.getName().compareTo(finalMarker) > 0;
                }
             });
-            contents = contents.tailSet(lastMarkerMetadata);
-         }
-
-         final String prefix = options.getDir();
-         if (prefix != null) {
-            contents = newTreeSet(filter(contents, new Predicate<StorageMetadata>() {
-               public boolean apply(StorageMetadata o) {
-                  return o != null && o.getName().startsWith(prefix) && !o.getName().equals(prefix);
-               }
-            }));
+            if (lastMarkerMetadata.isPresent()) {
+               contents = contents.tailSet(lastMarkerMetadata.get());
+            } else {
+               // marker is after last key or container is empty
+               contents.clear();
+            }
          }
 
          int maxResults = options.getMaxResults() != null ? options.getMaxResults() : 1000;
          if (!contents.isEmpty()) {
             StorageMetadata lastElement = contents.last();
             contents = newTreeSet(Iterables.limit(contents, maxResults));
-            if (!contents.contains(lastElement)) {
+            if (maxResults != 0 && !contents.contains(lastElement)) {
                // Partial listing
-               marker = contents.last().getName();
-            }
-         }
-
-         if (!options.isRecursive()) {
-            String delimiter = storageStrategy.getSeparator();
-            SortedSet<String> commonPrefixes = newTreeSet(
-                  transform(contents, new CommonPrefixes(prefix, delimiter)));
-            commonPrefixes.remove(CommonPrefixes.NO_PREFIX);
-
-            contents = newTreeSet(filter(contents, new DelimiterFilter(prefix, delimiter)));
-
-            for (String o : commonPrefixes) {
-               MutableStorageMetadata md = new MutableStorageMetadataImpl();
-               md.setType(StorageType.RELATIVE_PATH);
-               md.setName(o);
-               contents.add(md);
+               lastElement = contents.last();
+               marker = lastElement.getName();
             }
          }
 
@@ -295,6 +312,66 @@ public final class LocalBlobStore implements BlobStore {
       return new PageSetImpl<StorageMetadata>(contents, marker);
    }
 
+   private SortedSet<StorageMetadata> filterDirectory(SortedSet<StorageMetadata> contents, ListContainerOptions
+           options) {
+      String prefix = options.getDir();
+      final String dirPrefix = prefix.endsWith("/") ?
+              prefix :
+              prefix + "/";
+      contents = newTreeSet(filter(contents, new Predicate<StorageMetadata>() {
+         public boolean apply(StorageMetadata o) {
+            return o != null
+                    && o.getName().replace(File.separatorChar, '/').startsWith(dirPrefix)
+                    && !o.getName().replace(File.separatorChar, '/').equals(dirPrefix);
+         }
+      }));
+
+      if (!options.isRecursive()) {
+         return extractCommonPrefixes(contents, storageStrategy.getSeparator(), dirPrefix);
+      }
+
+      return contents;
+   }
+
+   private SortedSet<StorageMetadata> filterPrefix(SortedSet<StorageMetadata> contents, final ListContainerOptions
+                                                   options) {
+      contents = newTreeSet(filter(contents, new Predicate<StorageMetadata>() {
+         public boolean apply(StorageMetadata o) {
+            return o != null && o.getName().replace(File.separatorChar, '/').startsWith(options.getPrefix());
+         }
+      }));
+
+      if (options.getDelimiter() != null) {
+         return extractCommonPrefixes(contents, options.getDelimiter(), options.getPrefix());
+      }
+
+      return contents;
+   }
+
+   private SortedSet<StorageMetadata> extractCommonPrefixes(SortedSet<StorageMetadata> contents, String delimiter,
+                                                            String prefix) {
+      if (Strings.isNullOrEmpty(delimiter)) {
+         return contents;
+      }
+      SortedSet<String> commonPrefixes = newTreeSet(
+              transform(contents, new CommonPrefixes(prefix, delimiter)));
+      commonPrefixes.remove(CommonPrefixes.NO_PREFIX);
+
+      contents = newTreeSet(filter(contents, new DelimiterFilter(prefix, delimiter)));
+
+      for (String o : commonPrefixes) {
+         MutableStorageMetadata md = new MutableStorageMetadataImpl();
+         md.setType(StorageType.RELATIVE_PATH);
+
+         if (prefix != null) {
+            o = prefix + o;
+         }
+         md.setName(o + delimiter);
+         contents.add(md);
+      }
+      return contents;
+   }
+
    private ContainerNotFoundException cnfe(final String name) {
       return new ContainerNotFoundException(name, String.format(
             "container %s not in %s", name,
@@ -307,6 +384,23 @@ public final class LocalBlobStore implements BlobStore {
          throw cnfe(containerName);
       }
       storageStrategy.removeBlob(containerName, key);
+   }
+
+   @Override
+   public void removeBlobs(String container, Iterable<String> names) {
+      for (String name : names) {
+         removeBlob(container, name);
+      }
+   }
+
+   @Override
+   public BlobAccess getBlobAccess(String container, String name) {
+      return storageStrategy.getBlobAccess(container, name);
+   }
+
+   @Override
+   public void setBlobAccess(String container, String name, BlobAccess access) {
+      storageStrategy.setBlobAccess(container, name, access);
    }
 
    @Override
@@ -333,27 +427,34 @@ public final class LocalBlobStore implements BlobStore {
 
    @Override
    public PageSet<? extends StorageMetadata> list() {
-      Iterable<String> containers = storageStrategy.getAllContainerNames();
+      ArrayList<String> containers = new ArrayList<String>(storageStrategy.getAllContainerNames());
+      Collections.sort(containers);
 
-      return new PageSetImpl<StorageMetadata>(transform(
-            containers, new Function<String, StorageMetadata>() {
+      return new PageSetImpl<StorageMetadata>(FluentIterable
+            .from(containers)
+            .transform(new Function<String, StorageMetadata>() {
+               @Override
                public StorageMetadata apply(String name) {
-                  MutableStorageMetadata cmd = create();
-                  cmd.setName(name);
-                  cmd.setType(StorageType.CONTAINER);
-                  cmd.setLocation(storageStrategy.getLocation(name));
-                  return cmd;
+                  return storageStrategy.getContainerMetadata(name);
                }
-            }), null);
-   }
-
-   private MutableStorageMetadata create() {
-      return new MutableStorageMetadataImpl();
+            })
+            .filter(Predicates.<StorageMetadata>notNull()),
+            null);
    }
 
    @Override
    public boolean createContainerInLocation(Location location, String name) {
-      return storageStrategy.createContainerInLocation(name, location);
+      return storageStrategy.createContainerInLocation(name, location, CreateContainerOptions.NONE);
+   }
+
+   @Override
+   public ContainerAccess getContainerAccess(String container) {
+      return storageStrategy.getContainerAccess(container);
+   }
+
+   @Override
+   public void setContainerAccess(String container, ContainerAccess access) {
+      storageStrategy.setContainerAccess(container, access);
    }
 
    private Blob loadBlob(final String container, final String key) {
@@ -371,15 +472,15 @@ public final class LocalBlobStore implements BlobStore {
       }
 
       public boolean apply(StorageMetadata metadata) {
-         if (prefix == null)
-            return metadata.getName().indexOf(delimiter) == -1;
-         // ensure we don't accidentally append twice
-         String toMatch = prefix.endsWith("/") ? prefix : prefix + delimiter;
-         if (metadata.getName().startsWith(toMatch)) {
-            String unprefixedName = metadata.getName().replaceFirst(Pattern.quote(toMatch), "");
+         String name = metadata.getName();
+         if (prefix == null || prefix.isEmpty()) {
+            return name.indexOf(delimiter) == -1;
+         }
+         if (name.startsWith(prefix)) {
+            String unprefixedName = name.substring(prefix.length());
             if (unprefixedName.equals("")) {
-               // we are the prefix in this case, return false
-               return false;
+               // a blob that matches the prefix should also be returned
+               return true;
             }
             return unprefixedName.indexOf(delimiter) == -1;
          }
@@ -400,16 +501,18 @@ public final class LocalBlobStore implements BlobStore {
       public String apply(StorageMetadata metadata) {
          String working = metadata.getName();
          if (prefix != null) {
-            // ensure we don't accidentally append twice
-            String toMatch = prefix.endsWith("/") ? prefix : prefix + delimiter;
-            if (working.startsWith(toMatch)) {
-               working = working.replaceFirst(Pattern.quote(toMatch), "");
+            if (working.startsWith(prefix)) {
+               working = working.substring(prefix.length());
+            } else {
+               return NO_PREFIX;
             }
          }
-         if (working.contains(delimiter)) {
+         if (working.indexOf(delimiter) >= 0) {
+            // include the delimiter in the result
             return working.substring(0, working.indexOf(delimiter));
+         } else {
+            return NO_PREFIX;
          }
-         return NO_PREFIX;
       }
    }
 
@@ -421,27 +524,90 @@ public final class LocalBlobStore implements BlobStore {
 
    @Override
    public String putBlob(String containerName, Blob blob) {
-      checkNotNull(containerName, "containerName must be set");
-      checkNotNull(blob, "blob must be set");
-      String blobKey = blob.getMetadata().getName();
+      return putBlob(containerName, blob, PutOptions.NONE);
+   }
 
-      logger.debug("Put blob with key [%s] to container [%s]", blobKey, containerName);
-      if (!storageStrategy.containerExists(containerName)) {
-         throw cnfe(containerName);
+   @Override
+   public String copyBlob(String fromContainer, String fromName, String toContainer, String toName,
+         CopyOptions options) {
+      Blob blob = getBlob(fromContainer, fromName);
+      if (blob == null) {
+         throw new KeyNotFoundException(fromContainer, fromName, "while copying");
       }
 
-      try {
-         return storageStrategy.putBlob(containerName, blob);
-      } catch (IOException e) {
-         String message = e.getMessage();
-         if (message != null && message.startsWith("MD5 hash code mismatch")) {
-            HttpResponseException exception = returnResponseException(400);
-            exception.initCause(e);
-            throw exception;
+      String eTag = blob.getMetadata().getETag();
+      if (eTag != null) {
+         eTag = maybeQuoteETag(eTag);
+         if (options.ifMatch() != null && !maybeQuoteETag(options.ifMatch()).equals(eTag)) {
+            throw returnResponseException(412);
          }
-         logger.error(e, "An error occurred storing the new blob with name [%s] to container [%s].", blobKey,
-               containerName);
-         throw propagate(e);
+         if (options.ifNoneMatch() != null && maybeQuoteETag(options.ifNoneMatch()).equals(eTag)) {
+            throw returnResponseException(412);
+         }
+      }
+
+      Date lastModified = blob.getMetadata().getLastModified();
+      if (lastModified != null) {
+         if (options.ifModifiedSince() != null && lastModified.compareTo(options.ifModifiedSince()) <= 0) {
+            throw returnResponseException(412);
+         }
+         if (options.ifUnmodifiedSince() != null && lastModified.compareTo(options.ifUnmodifiedSince()) >= 0) {
+            throw returnResponseException(412);
+         }
+      }
+
+      InputStream is = null;
+      try {
+         is = blob.getPayload().openStream();
+         ContentMetadata metadata = blob.getMetadata().getContentMetadata();
+         BlobBuilder.PayloadBlobBuilder builder = blobBuilder(toName)
+               .payload(is);
+         Long contentLength = metadata.getContentLength();
+         if (contentLength != null) {
+            builder.contentLength(contentLength);
+         }
+
+         ContentMetadata contentMetadata = options.contentMetadata();
+         if (contentMetadata != null) {
+            String cacheControl = contentMetadata.getCacheControl();
+            if (cacheControl != null) {
+               builder.cacheControl(cacheControl);
+            }
+            String contentDisposition = contentMetadata.getContentDisposition();
+            if (contentDisposition != null) {
+               builder.contentDisposition(contentDisposition);
+            }
+            String contentEncoding = contentMetadata.getContentEncoding();
+            if (contentEncoding != null) {
+               builder.contentEncoding(contentEncoding);
+            }
+            String contentLanguage = contentMetadata.getContentLanguage();
+            if (contentLanguage != null) {
+               builder.contentLanguage(contentLanguage);
+            }
+            String contentType = contentMetadata.getContentType();
+            if (contentType != null) {
+               builder.contentType(contentType);
+            }
+         } else {
+            builder.cacheControl(metadata.getCacheControl())
+                   .contentDisposition(metadata.getContentDisposition())
+                   .contentEncoding(metadata.getContentEncoding())
+                   .contentLanguage(metadata.getContentLanguage())
+                   .contentType(metadata.getContentType());
+         }
+
+         Map<String, String> userMetadata = options.userMetadata();
+         if (userMetadata != null) {
+            builder.userMetadata(userMetadata);
+         } else {
+            builder.userMetadata(blob.getMetadata().getUserMetadata());
+         }
+         return putBlob(toContainer, builder.build());
+      } catch (IOException ioe) {
+         throw Throwables.propagate(ioe);
+      } finally {
+         Closeables2.closeQuietly(is);
       }
    }
 
@@ -473,13 +639,17 @@ public final class LocalBlobStore implements BlobStore {
       Blob blob = loadBlob(containerName, key);
 
       if (options != null) {
-         if (options.getIfMatch() != null) {
-            if (!blob.getMetadata().getETag().equals(options.getIfMatch()))
-               throw returnResponseException(412);
-         }
-         if (options.getIfNoneMatch() != null) {
-            if (blob.getMetadata().getETag().equals(options.getIfNoneMatch()))
-               throw returnResponseException(304);
+         String eTag = blob.getMetadata().getETag();
+         if (eTag != null) {
+            eTag = maybeQuoteETag(eTag);
+            if (options.getIfMatch() != null) {
+               if (!eTag.equals(maybeQuoteETag(options.getIfMatch())))
+                  throw returnResponseException(412);
+            }
+            if (options.getIfNoneMatch() != null) {
+               if (eTag.equals(maybeQuoteETag(options.getIfNoneMatch())))
+                  throw returnResponseException(304);
+            }
          }
          if (options.getIfModifiedSince() != null) {
             Date modifiedSince = options.getIfModifiedSince();
@@ -501,43 +671,57 @@ public final class LocalBlobStore implements BlobStore {
          blob = copyBlob(blob);
 
          if (options.getRanges() != null && !options.getRanges().isEmpty()) {
-            byte[] data;
+            long size = 0;
+            ImmutableList.Builder<ByteSource> streams = ImmutableList.builder();
+
+            // Try to convert payload to ByteSource, otherwise wrap it.
+            ByteSource byteSource;
             try {
-               data = ByteStreams2.toByteArrayAndClose(blob.getPayload().openStream());
-            } catch (IOException e) {
-               throw new RuntimeException(e);
+               byteSource = (ByteSource) blob.getPayload().getRawContent();
+            } catch (ClassCastException cce) {
+               try {
+                  byteSource = ByteSource.wrap(ByteStreams2.toByteArrayAndClose(blob.getPayload().openStream()));
+               } catch (IOException e) {
+                  throw new RuntimeException(e);
+               }
             }
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
+
             for (String s : options.getRanges()) {
                // HTTP uses a closed interval while Java array indexing uses a
                // half-open interval.
-               int offset = 0;
-               int last = data.length - 1;
+               long offset = 0;
+               long last = blob.getPayload().getContentMetadata().getContentLength() - 1;
                if (s.startsWith("-")) {
-                  offset = last - Integer.parseInt(s.substring(1)) + 1;
+                  offset = last - Long.parseLong(s.substring(1)) + 1;
+                  if (offset < 0) {
+                     offset = 0;
+                  }
                } else if (s.endsWith("-")) {
-                  offset = Integer.parseInt(s.substring(0, s.length() - 1));
+                  offset = Long.parseLong(s.substring(0, s.length() - 1));
                } else if (s.contains("-")) {
                   String[] firstLast = s.split("\\-");
-                  offset = Integer.parseInt(firstLast[0]);
-                  last = Integer.parseInt(firstLast[1]);
+                  offset = Long.parseLong(firstLast[0]);
+                  last = Long.parseLong(firstLast[1]);
                } else {
                   throw new IllegalArgumentException("illegal range: " + s);
                }
 
-               if (offset > last) {
+               if (offset >= blob.getPayload().getContentMetadata().getContentLength()) {
                   throw new IllegalArgumentException("illegal range: " + s);
                }
-               if (last + 1 > data.length) {
-                  last = data.length - 1;
+               if (last + 1 > blob.getPayload().getContentMetadata().getContentLength()) {
+                  last = blob.getPayload().getContentMetadata().getContentLength() - 1;
                }
-               out.write(data, offset, last - offset + 1);
+               streams.add(byteSource.slice(offset, last - offset + 1));
+               size += last - offset + 1;
+               blob.getAllHeaders().put(HttpHeaders.CONTENT_RANGE,
+                     "bytes " + offset + "-" + last + "/" + blob.getPayload().getContentMetadata().getContentLength());
             }
             ContentMetadata cmd = blob.getPayload().getContentMetadata();
-            byte[] byteArray = out.toByteArray();
-            blob.setPayload(byteArray);
+            blob.setPayload(ByteSource.concat(streams.build()));
             HttpUtils.copy(cmd, blob.getPayload().getContentMetadata());
-            blob.getPayload().getContentMetadata().setContentLength(Long.valueOf(byteArray.length));
+            blob.getPayload().getContentMetadata().setContentLength(size);
+            blob.getMetadata().setSize(size);
          }
       }
       checkNotNull(blob.getPayload(), "payload " + blob);
@@ -549,7 +733,7 @@ public final class LocalBlobStore implements BlobStore {
       try {
          Blob blob = getBlob(containerName, key);
          return blob != null ? (BlobMetadata) BlobStoreUtils.copy(blob.getMetadata()) : null;
-      } catch (Exception e) {
+      } catch (RuntimeException e) {
          if (size(Iterables.filter(getCausalChain(e), KeyNotFoundException.class)) >= 1)
             return null;
          throw e;
@@ -570,14 +754,216 @@ public final class LocalBlobStore implements BlobStore {
 
    @Override
    public String putBlob(String containerName, Blob blob, PutOptions options) {
-      // TODO implement options
-      return putBlob(containerName, blob);
+      checkNotNull(containerName, "containerName must be set");
+      checkNotNull(blob, "blob must be set");
+      String blobKey = blob.getMetadata().getName();
+
+      logger.debug("Put blob with key [%s] to container [%s]", blobKey, containerName);
+      if (!storageStrategy.containerExists(containerName)) {
+         throw cnfe(containerName);
+      }
+
+      try {
+         String eTag = storageStrategy.putBlob(containerName, blob);
+         setBlobAccess(containerName, blobKey, options.getBlobAccess());
+         return eTag;
+      } catch (IOException e) {
+         String message = e.getMessage();
+         if (message != null && message.startsWith("MD5 hash code mismatch")) {
+            HttpResponseException exception = returnResponseException(400);
+            exception.initCause(e);
+            throw exception;
+         }
+         logger.error(e, "An error occurred storing the new blob with name [%s] to container [%s].", blobKey,
+               containerName);
+         throw propagate(e);
+      }
    }
 
    @Override
    public boolean createContainerInLocation(Location location, String container, CreateContainerOptions options) {
-      if (options.isPublicRead())
-         throw new UnsupportedOperationException("publicRead");
-      return createContainerInLocation(location, container);
+      return storageStrategy.createContainerInLocation(container, location, options);
    }
+
+   @Override
+   public MultipartUpload initiateMultipartUpload(String container, BlobMetadata blobMetadata, PutOptions options) {
+      String uploadId = UUID.randomUUID().toString();
+      // create a stub blob
+      Blob blob = blobBuilder(MULTIPART_PREFIX + uploadId + "-" + blobMetadata.getName() + "-stub").payload(ByteSource.empty()).build();
+      putBlob(container, blob);
+      return MultipartUpload.create(container, blobMetadata.getName(), uploadId,
+            blobMetadata, options);
+   }
+
+   @Override
+   public void abortMultipartUpload(MultipartUpload mpu) {
+      List<MultipartPart> parts = listMultipartUpload(mpu);
+      for (MultipartPart part : parts) {
+         removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + part.partNumber());
+      }
+      removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-stub");
+   }
+
+   @Override
+   public String completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
+      ImmutableList.Builder<InputStream> streams = ImmutableList.builder();
+      long contentLength = 0;
+      for (MultipartPart part : parts) {
+         Blob blobPart = getBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + part.partNumber());
+         contentLength += blobPart.getMetadata().getContentMetadata().getContentLength();
+         InputStream is;
+         try {
+            is = blobPart.getPayload().openStream();
+         } catch (IOException ioe) {
+            throw propagate(ioe);
+         }
+         streams.add(is);
+      }
+      PayloadBlobBuilder blobBuilder = blobBuilder(mpu.blobName())
+            .userMetadata(mpu.blobMetadata().getUserMetadata())
+            .payload(new SequenceInputStream(Iterators.asEnumeration(streams.build().iterator())))
+            .contentLength(contentLength);
+      String cacheControl = mpu.blobMetadata().getContentMetadata().getCacheControl();
+      if (cacheControl != null) {
+         blobBuilder.cacheControl(cacheControl);
+      }
+      String contentDisposition = mpu.blobMetadata().getContentMetadata().getContentDisposition();
+      if (contentDisposition != null) {
+         blobBuilder.contentDisposition(contentDisposition);
+      }
+      String contentEncoding = mpu.blobMetadata().getContentMetadata().getContentEncoding();
+      if (contentEncoding != null) {
+         blobBuilder.contentEncoding(contentEncoding);
+      }
+      String contentLanguage = mpu.blobMetadata().getContentMetadata().getContentLanguage();
+      if (contentLanguage != null) {
+         blobBuilder.contentLanguage(contentLanguage);
+      }
+      // intentionally not copying MD5
+      String contentType = mpu.blobMetadata().getContentMetadata().getContentType();
+      if (contentType != null) {
+         blobBuilder.contentType(contentType);
+      }
+      Date expires = mpu.blobMetadata().getContentMetadata().getExpires();
+      if (expires != null) {
+         blobBuilder.expires(expires);
+      }
+
+      String eTag = putBlob(mpu.containerName(), blobBuilder.build());
+
+      for (MultipartPart part : parts) {
+         removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + part.partNumber());
+      }
+      removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-stub");
+
+      setBlobAccess(mpu.containerName(), mpu.blobName(), mpu.putOptions().getBlobAccess());
+
+      return eTag;
+   }
+
+   @Override
+   public MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, Payload payload) {
+      String partName = MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + partNumber;
+      Blob blob = blobBuilder(partName)
+            .payload(payload)
+            .build();
+      String partETag = putBlob(mpu.containerName(), blob);
+      BlobMetadata metadata = blobMetadata(mpu.containerName(), partName);  // TODO: racy, how to get this from payload?
+      long partSize = metadata.getContentMetadata().getContentLength();
+      return MultipartPart.create(partNumber, partSize, partETag, metadata.getLastModified());
+   }
+
+   @Override
+   public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
+      ImmutableList.Builder<MultipartPart> parts = ImmutableList.builder();
+      ListContainerOptions options =
+            new ListContainerOptions().prefix(MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-").recursive();
+      while (true) {
+         PageSet<? extends StorageMetadata> pageSet = list(mpu.containerName(), options);
+         for (StorageMetadata sm : pageSet) {
+            if (sm.getName().endsWith("-stub")) {
+               continue;
+            }
+            int partNumber = Integer.parseInt(sm.getName().substring((MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-").length()));
+            long partSize = sm.getSize();
+            parts.add(MultipartPart.create(partNumber, partSize, sm.getETag(), sm.getLastModified()));
+         }
+         if (pageSet.isEmpty() || pageSet.getNextMarker() == null) {
+            break;
+         }
+         options.afterMarker(pageSet.getNextMarker());
+      }
+      return parts.build();
+   }
+
+   @Override
+   public List<MultipartUpload> listMultipartUploads(String container) {
+      ImmutableList.Builder<MultipartUpload> mpus = ImmutableList.builder();
+      ListContainerOptions options = new ListContainerOptions().prefix(MULTIPART_PREFIX).recursive();
+      int uuidLength = UUID.randomUUID().toString().length();
+      while (true) {
+         PageSet<? extends StorageMetadata> pageSet = list(container, options);
+         for (StorageMetadata sm : pageSet) {
+            if (!sm.getName().endsWith("-stub")) {
+               continue;
+            }
+            String uploadId = sm.getName().substring(MULTIPART_PREFIX.length(), MULTIPART_PREFIX.length() + uuidLength);
+            String blobName = sm.getName().substring(MULTIPART_PREFIX.length() + uuidLength + 1);
+            int index = blobName.lastIndexOf('-');
+            blobName = blobName.substring(0, index);
+
+            mpus.add(MultipartUpload.create(container, blobName, uploadId, null, null));
+         }
+         if (pageSet.isEmpty() || pageSet.getNextMarker() == null) {
+            break;
+         }
+         options.afterMarker(pageSet.getNextMarker());
+      }
+
+      return mpus.build();
+   }
+
+   @Override
+   public long getMinimumMultipartPartSize() {
+      return 1;
+   }
+
+   @Override
+   public long getMaximumMultipartPartSize() {
+      return 5 * 1024 * 1024;
+   }
+
+   @Override
+   public int getMaximumNumberOfParts() {
+      return Integer.MAX_VALUE;
+   }
+
+   @Override
+   public void downloadBlob(String container, String name, File destination) {
+      throw new UnsupportedOperationException();
+   }
+
+   @Override
+   public void downloadBlob(String container, String name, File destination, ExecutorService executor) {
+      throw new UnsupportedOperationException();
+   }
+
+   @Override
+   public InputStream streamBlob(String container, String name) {
+      throw new UnsupportedOperationException();
+   }
+
+   @Override
+   public InputStream streamBlob(String container, String name, ExecutorService executor) {
+      throw new UnsupportedOperationException();
+   }
+
+   private static String maybeQuoteETag(String eTag) {
+      if (!eTag.startsWith("\"") && !eTag.endsWith("\"")) {
+         eTag = "\"" + eTag + "\"";
+      }
+      return eTag;
+   }
+
+
 }

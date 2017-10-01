@@ -20,7 +20,6 @@ import static org.testng.Assert.assertEquals;
 
 import java.util.Set;
 
-import org.jclouds.chef.ChefApi;
 import org.jclouds.chef.domain.Node;
 import org.jclouds.chef.internal.BaseChefLiveTest;
 import org.jclouds.ohai.config.OhaiModule.CurrentUserProvider;
@@ -32,7 +31,7 @@ import com.google.common.collect.ImmutableSet;
  * Tests behavior of {@code UpdateAutomaticAttributesOnNodeImpl} strategies
  */
 @Test(groups = "live", testName = "UpdateAutomaticAttributesOnNodeImplLiveTest")
-public class UpdateAutomaticAttributesOnNodeImplLiveTest extends BaseChefLiveTest<ChefApi> {
+public class UpdateAutomaticAttributesOnNodeImplLiveTest extends BaseChefLiveTest {
 
    private CurrentUserProvider currentUserProvider;
    private UpdateAutomaticAttributesOnNodeImpl strategy;
@@ -40,6 +39,7 @@ public class UpdateAutomaticAttributesOnNodeImplLiveTest extends BaseChefLiveTes
    @Override
    protected void initialize() {
       super.initialize();
+      this.prefix = this.prefix + "-" + this.hashCode();
       this.currentUserProvider = injector.getInstance(CurrentUserProvider.class);
       this.strategy = injector.getInstance(UpdateAutomaticAttributesOnNodeImpl.class);
    }

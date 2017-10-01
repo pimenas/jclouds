@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.File;
 import java.io.InputStream;
 
+import org.jclouds.io.payloads.ByteArrayPayload;
 import org.jclouds.io.payloads.ByteSourcePayload;
 import org.jclouds.io.payloads.FilePayload;
 import org.jclouds.io.payloads.InputStreamPayload;
@@ -34,10 +35,6 @@ public class Payloads {
    private Payloads() {
    }
 
-   /**
-    * @deprecated see newPayload(ByteSource) or newPayload(InputStream)
-    */
-   @Deprecated
    public static Payload newPayload(Object data) {
       checkNotNull(data, "data");
       if (data instanceof Payload) {
@@ -45,10 +42,7 @@ public class Payloads {
       } else if (data instanceof InputStream) {
          return newInputStreamPayload((InputStream) data);
       } else if (data instanceof byte[]) {
-         byte[] array = (byte[]) data;
-         Payload payload = newByteSourcePayload(ByteSource.wrap(array));
-         payload.getContentMetadata().setContentLength((long) array.length);
-         return payload;
+         return newByteArrayPayload((byte[]) data);
       } else if (data instanceof ByteSource) {
          return newByteSourcePayload((ByteSource) data);
       } else if (data instanceof String) {
@@ -64,22 +58,18 @@ public class Payloads {
       return new InputStreamPayload(checkNotNull(data, "data"));
    }
 
+   public static ByteArrayPayload newByteArrayPayload(byte[] data) {
+      return new ByteArrayPayload(checkNotNull(data, "data"));
+   }
+
    public static ByteSourcePayload newByteSourcePayload(ByteSource data) {
       return new ByteSourcePayload(checkNotNull(data, "data"));
    }
 
-   /**
-    * @deprecated see newPayload(ByteSource)
-    */
-   @Deprecated
    public static StringPayload newStringPayload(String data) {
       return new StringPayload(checkNotNull(data, "data"));
    }
 
-   /**
-    * @deprecated see newPayload(ByteSource)
-    */
-   @Deprecated
    public static FilePayload newFilePayload(File data) {
       return new FilePayload(checkNotNull(data, "data"));
    }

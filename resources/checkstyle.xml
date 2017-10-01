@@ -55,6 +55,10 @@
         <module name="UnusedImports">
             <property name="processJavadoc" value="true"/>
         </module>
+        <module name="IllegalImport">
+            <!-- Avoid importing AutoValue shaded packages such as Guava -->
+            <property name="illegalPkgs" value="sun,autovalue,org.testng.internal"/>
+        </module>
         <module name="WhitespaceAfter">
             <!-- TYPECAST disabled -->
             <property name="tokens" value="COMMA, SEMI"/>
@@ -87,5 +91,10 @@
     <module name="RegexpMultiline">
         <property name="format" value="@author"/>
         <property name="message" value="Do not use Javadoc @author annotation"/>
+    </module>
+    <module name="RegexpMultiline">
+        <property name="format" value="\r\n"/>
+        <property name="message" value="Do not use Windows line endings"/>
+        <property name="fileExtensions" value="java,xml,json"/>
     </module>
 </module>

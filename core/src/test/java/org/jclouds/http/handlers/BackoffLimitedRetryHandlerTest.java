@@ -16,9 +16,10 @@
  */
 package org.jclouds.http.handlers;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.jclouds.reflect.Reflection2.method;
 import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertTrue;
+import static org.testng.Assert.fail;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -51,82 +52,104 @@ public class BackoffLimitedRetryHandlerTest {
       long startTime = System.nanoTime();
       handler.imposeBackoffExponentialDelay(period, 2, 1, 5, "TEST FAILURE: 1");
       long elapsedTime = (System.nanoTime() - startTime) / 1000000;
-      assert elapsedTime >= period - 1 : elapsedTime;
-      assertTrue(elapsedTime < period + acceptableDelay);
+      assertThat(elapsedTime).isBetween(period, period + acceptableDelay);
 
       startTime = System.nanoTime();
       handler.imposeBackoffExponentialDelay(period, 2, 2, 5, "TEST FAILURE: 2");
       elapsedTime = (System.nanoTime() - startTime) / 1000000;
-      assert elapsedTime >= period * 4 - 1 : elapsedTime;
-      assertTrue(elapsedTime < period * 9);
+      assertThat(elapsedTime).isBetween(period * 4, period * 9);
 
       startTime = System.nanoTime();
       handler.imposeBackoffExponentialDelay(period, 2, 3, 5, "TEST FAILURE: 3");
       elapsedTime = (System.nanoTime() - startTime) / 1000000;
-      assert elapsedTime >= period * 9 - 1 : elapsedTime;
-      assertTrue(elapsedTime < period * 10);
+      assertThat(elapsedTime).isBetween(period * 9, period * 10);
 
       startTime = System.nanoTime();
       handler.imposeBackoffExponentialDelay(period, 2, 4, 5, "TEST FAILURE: 4");
       elapsedTime = (System.nanoTime() - startTime) / 1000000;
-      assert elapsedTime >= period * 10 - 1 : elapsedTime;
-      assertTrue(elapsedTime < period * 11);
+      assertThat(elapsedTime).isBetween(period * 10, period * 11);
 
       startTime = System.nanoTime();
       handler.imposeBackoffExponentialDelay(period, 2, 5, 5, "TEST FAILURE: 5");
       elapsedTime = (System.nanoTime() - startTime) / 1000000;
-      assert elapsedTime >= period * 10 - 1 : elapsedTime;
-      assertTrue(elapsedTime < period * 11);
+      assertThat(elapsedTime).isBetween(period * 10, period * 11);
 
    }
 
-   @Test
-   void testClosesInputStream() throws InterruptedException, IOException, SecurityException, NoSuchMethodException {
-      HttpCommand command = createCommand();
+   // TODO: disabled since this often fails due to race conditions
+   @Test(enabled = false)
+   void testExponentialBackoffDelaySmallInterval5() throws InterruptedException {
+      long period = 5;
+      long acceptableDelay = period - 1;
 
-      HttpResponse response = HttpResponse.builder().statusCode(400).build();
+      long startTime = System.nanoTime();
+      handler.imposeBackoffExponentialDelay(period, 2, 1, 5, "TEST FAILURE: 1");
+      long elapsedTime = (System.nanoTime() - startTime) / 1000000;
+      assertThat(elapsedTime).isBetween(period, period + acceptableDelay);
+   }
+
+   // TODO: disabled since this often fails due to race conditions
+   @Test(enabled = false)
+   void testExponentialBackoffDelaySmallInterval1() throws InterruptedException {
+      long period = 1;
+      long acceptableDelay = 5;
+
+      long startTime = System.nanoTime();
+      handler.imposeBackoffExponentialDelay(period, 2, 1, 5, "TEST FAILURE: 1");
+      long elapsedTime = (System.nanoTime() - startTime) / 1000000;
+      assertThat(elapsedTime).isBetween(period, period + acceptableDelay);
+   }
+
+   @Test
+   void testExponentialBackoffDelaySmallInterval0() throws InterruptedException {
+      long period = 0;
+      long acceptableDelay = 5;
+
+      long startTime = System.nanoTime();
+      handler.imposeBackoffExponentialDelay(period, 2, 1, 5, "TEST FAILURE: 1");
+      long elapsedTime = (System.nanoTime() - startTime) / 1000000;
+      assertThat(elapsedTime).isBetween(period, period + acceptableDelay);
+   }
+
+   @Test
+   void testInputStreamIsNotClosed() throws SecurityException, NoSuchMethodException, IOException {
+      HttpCommand command = createCommand();
+      HttpResponse response = HttpResponse.builder().statusCode(500).build();
 
       InputStream inputStream = new InputStream() {
-         boolean isOpen = true;
+         int count = 2;
 
          @Override
          public void close() {
-            this.isOpen = false;
+            fail("The retry handler should not close the response stream");
          }
-
-         int count = 1;
 
          @Override
          public int read() throws IOException {
-            if (this.isOpen)
-               return (count > -1) ? count-- : -1;
-            else
-               return -1;
+            return count < 0 ? -1 : --count;
          }
 
          @Override
          public int available() throws IOException {
-            if (this.isOpen)
-               return count;
-            else
-               return 0;
+            return count < 0 ? 0 : count;
          }
       };
+
       response.setPayload(Payloads.newInputStreamPayload(inputStream));
-      response.getPayload().getContentMetadata().setContentLength(1l);
-      assertEquals(response.getPayload().getInput().available(), 1);
-      assertEquals(response.getPayload().getInput().read(), 1);
+      response.getPayload().getContentMetadata().setContentLength(1L);
+      assertEquals(response.getPayload().openStream().available(), 2);
+      assertEquals(response.getPayload().openStream().read(), 1);
 
       handler.shouldRetryRequest(command, response);
 
-      assertEquals(response.getPayload().getInput().available(), 0);
-      assertEquals(response.getPayload().getInput().read(), -1);
+      assertEquals(response.getPayload().openStream().available(), 1);
+      assertEquals(response.getPayload().openStream().read(), 0);
    }
 
    private final Function<Invocation, HttpRequest> processor = ContextBuilder
          .newBuilder(AnonymousProviderMetadata.forApiOnEndpoint(IntegrationTestClient.class, "http://localhost"))
          .buildInjector().getInstance(RestAnnotationProcessor.class);
-   
+
 
    private HttpCommand createCommand() throws SecurityException, NoSuchMethodException {
       Invokable<IntegrationTestClient, String> method = method(IntegrationTestClient.class, "download", String.class);

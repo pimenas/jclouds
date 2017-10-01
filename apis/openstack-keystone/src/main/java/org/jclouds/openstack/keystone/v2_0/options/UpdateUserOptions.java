@@ -27,8 +27,8 @@ import org.jclouds.rest.MapBinder;
 import org.jclouds.rest.binders.BindToJsonPayload;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.collect.ImmutableMap;
 
 public class UpdateUserOptions implements MapBinder{
@@ -93,7 +93,7 @@ public class UpdateUserOptions implements MapBinder{
          user.password = password;
       user.enabled = enabled;
 
-      return bindToRequest(request, ImmutableMap.of("user", user));
+      return bindToRequest(request, (Object) ImmutableMap.of("user", user));
    }
 
    /**

@@ -51,7 +51,8 @@ import com.google.common.collect.FluentIterable;
  * Provides access to the OpenStack Compute (Nova) Security Group extension API.
  */
 @Beta
-@Extension(of = ServiceType.COMPUTE, namespace = ExtensionNamespaces.SECURITY_GROUPS)
+@Extension(of = ServiceType.COMPUTE, namespace = ExtensionNamespaces.SECURITY_GROUPS,
+      name = ExtensionNames.SECURITY_GROUPS, alias = ExtensionAliases.SECURITY_GROUPS)
 @RequestFilters(AuthenticateRequest.class)
 @Consumes(MediaType.APPLICATION_JSON)
 public interface SecurityGroupApi {
@@ -91,7 +92,6 @@ public interface SecurityGroupApi {
    @SelectJson("security_group")
    @Produces(MediaType.APPLICATION_JSON)
    @Payload("%7B\"security_group\":%7B\"name\":\"{name}\",\"description\":\"{description}\"%7D%7D")
-   @Fallback(NullOnNotFoundOr404.class)
    @Nullable
    SecurityGroup createWithDescription(@PayloadParam("name") String name,
          @PayloadParam("description") String description);
@@ -118,7 +118,6 @@ public interface SecurityGroupApi {
    @SelectJson("security_group_rule")
    @Produces(MediaType.APPLICATION_JSON)
    @MapBinder(BindSecurityGroupRuleToJsonPayload.class)
-   @Fallback(NullOnNotFoundOr404.class)
    @Nullable
    SecurityGroupRule createRuleAllowingCidrBlock(
          @PayloadParam("parent_group_id") String parentGroup, Ingress ip_protocol,
@@ -135,7 +134,6 @@ public interface SecurityGroupApi {
    @SelectJson("security_group_rule")
    @Produces(MediaType.APPLICATION_JSON)
    @MapBinder(BindSecurityGroupRuleToJsonPayload.class)
-   @Fallback(NullOnNotFoundOr404.class)
    @Nullable
    SecurityGroupRule createRuleAllowingSecurityGroupId(
          @PayloadParam("parent_group_id") String parentGroup, Ingress ip_protocol,

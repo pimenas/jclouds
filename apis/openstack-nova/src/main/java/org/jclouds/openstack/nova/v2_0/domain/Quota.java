@@ -23,8 +23,8 @@ import java.beans.ConstructorProperties;
 import javax.inject.Named;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 
 /**
  * Represents the set of limits (quotas) returned by the Quota Extension

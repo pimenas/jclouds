@@ -38,12 +38,36 @@ public class SecurityGroupApiExpectTest extends BaseEC2ApiExpectTest<EC2Api> {
            .addFormParam("Action", "DescribeSecurityGroups")
            .addFormParam("Filter.1.Name", "owner-id")
            .addFormParam("Filter.1.Value.1", "993194456877")
-           .addFormParam("Signature", "zk8EEWkG9Hi0bBLPueF9WdTUKapxQqUXgyJTxeZHXBc%3D")
+           .addFormParam("Signature", "zk8EEWkG9Hi0bBLPueF9WdTUKapxQqUXgyJTxeZHXBc=")
            .addFormParam("SignatureMethod", "HmacSHA256")
            .addFormParam("SignatureVersion", "2")
-           .addFormParam("Timestamp", "2012-04-16T15%3A54%3A08.897Z")
+           .addFormParam("Timestamp", "2012-04-16T15:54:08.897Z")
            .addFormParam("Version", "2010-08-31")
            .addFormParam("AWSAccessKeyId", "identity").build();
+
+   HttpRequest deleteById = HttpRequest.builder().method("POST")
+         .endpoint("https://ec2.us-east-1.amazonaws.com/")
+         .addHeader("Host", "ec2.us-east-1.amazonaws.com")
+         .addFormParam("Action", "DeleteSecurityGroup")
+         .addFormParam("GroupId", "sg-3c6ef654")
+         .addFormParam("Signature", "FhFx9Uv587s+86KuCOngA2x3DiLRuRrkyd0ZTrXAYbc=")
+         .addFormParam("SignatureMethod", "HmacSHA256")
+         .addFormParam("SignatureVersion", "2")
+         .addFormParam("Timestamp", "2012-04-16T15:54:08.897Z")
+         .addFormParam("Version", "2010-08-31")
+         .addFormParam("AWSAccessKeyId", "identity").build();
+
+   HttpRequest deleteByName = HttpRequest.builder().method("POST")
+         .endpoint("https://ec2.us-east-1.amazonaws.com/")
+         .addHeader("Host", "ec2.us-east-1.amazonaws.com")
+         .addFormParam("Action", "DeleteSecurityGroup")
+         .addFormParam("GroupName", "jclouds#some-group")
+         .addFormParam("Signature", "Jw9ZpWcnAEPaNtZNZBsMyOUUFP1qGETKUzvHiAOz5C8=")
+         .addFormParam("SignatureMethod", "HmacSHA256")
+         .addFormParam("SignatureVersion", "2")
+         .addFormParam("Timestamp", "2012-04-16T15:54:08.897Z")
+         .addFormParam("Version", "2010-08-31")
+         .addFormParam("AWSAccessKeyId", "identity").build();
 
    public void testFilterWhenResponseIs2xx() {
       HttpResponse filterResponse = HttpResponse.builder().statusCode(200)
@@ -69,5 +93,47 @@ public class SecurityGroupApiExpectTest extends BaseEC2ApiExpectTest<EC2Api> {
                       .put("owner-id", "993194456877")
                       .build()),
               ImmutableSet.of());
+   }
+   
+   public void testDeleteSecurityGroupById() {
+      HttpResponse deleteResponse = HttpResponse.builder().statusCode(200)
+            .payload(payloadFromResourceWithContentType("/delete_securitygroup.xml", "text/xml")).build();
+
+      EC2Api apiWhenNotExist = requestsSendResponses(
+            describeRegionsRequest, describeRegionsResponse, 
+            deleteById, deleteResponse);
+
+      apiWhenNotExist.getSecurityGroupApi().get().deleteSecurityGroupInRegionById("us-east-1", "sg-3c6ef654");
+   }
+   
+   public void testDeleteSecurityGroupByIdWhen404() {
+      HttpResponse deleteResponse = HttpResponse.builder().statusCode(404).build();
+
+      EC2Api apiWhenNotExist = requestsSendResponses(
+            describeRegionsRequest, describeRegionsResponse, 
+            deleteById, deleteResponse);
+
+      apiWhenNotExist.getSecurityGroupApi().get().deleteSecurityGroupInRegionById("us-east-1", "sg-3c6ef654");
+   }
+   
+   public void testDeleteSecurityGroupByName() {
+      HttpResponse deleteResponse = HttpResponse.builder().statusCode(200)
+            .payload(payloadFromResourceWithContentType("/delete_securitygroup.xml", "text/xml")).build();
+
+      EC2Api apiWhenNotExist = requestsSendResponses(
+            describeRegionsRequest, describeRegionsResponse, 
+            deleteByName, deleteResponse);
+
+      apiWhenNotExist.getSecurityGroupApi().get().deleteSecurityGroupInRegion("us-east-1", "jclouds#some-group");
+   }
+   
+   public void testDeleteSecurityGroupByNameWhen404() {
+      HttpResponse deleteResponse = HttpResponse.builder().statusCode(404).build();
+
+      EC2Api apiWhenNotExist = requestsSendResponses(
+            describeRegionsRequest, describeRegionsResponse, 
+            deleteByName, deleteResponse);
+
+      apiWhenNotExist.getSecurityGroupApi().get().deleteSecurityGroupInRegion("us-east-1", "jclouds#some-group");
    }
 }

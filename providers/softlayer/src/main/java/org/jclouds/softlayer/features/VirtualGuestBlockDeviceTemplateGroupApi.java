@@ -22,9 +22,11 @@ import javax.inject.Named;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
 import javax.ws.rs.core.MediaType;
 
-import org.jclouds.Fallbacks;
+import org.jclouds.Fallbacks.EmptySetOnNotFoundOr404;
+import org.jclouds.Fallbacks.NullOnNotFoundOr404;
 import org.jclouds.http.filters.BasicAuthentication;
 import org.jclouds.rest.annotations.Fallback;
 import org.jclouds.rest.annotations.QueryParams;
@@ -42,7 +44,7 @@ import org.jclouds.softlayer.domain.VirtualGuestBlockDeviceTemplateGroup;
 @Consumes(MediaType.APPLICATION_JSON)
 public interface VirtualGuestBlockDeviceTemplateGroupApi {
 
-   String LIST_PUBLIC_IMAGES_MASK = "children.blockDevices.diskImage.softwareReferences.softwareDescription";
+   String MASK = "children.blockDevices.diskImage.softwareReferences.softwareDescription";
 
    /**
     * @return public images
@@ -51,8 +53,22 @@ public interface VirtualGuestBlockDeviceTemplateGroupApi {
    @Named("VirtualGuestBlockDeviceTemplateGroup:getPublicImages")
    @GET
    @Path("/SoftLayer_Virtual_Guest_Block_Device_Template_Group/getPublicImages")
-   @QueryParams(keys = "objectMask", values = LIST_PUBLIC_IMAGES_MASK)
-   @Fallback(Fallbacks.EmptySetOnNotFoundOr404.class)
+   @QueryParams(keys = "objectMask", values = MASK)
+   @Fallback(EmptySetOnNotFoundOr404.class)
    Set<VirtualGuestBlockDeviceTemplateGroup> getPublicImages();
 
+   /**
+    * Retrieves a virtual block device template group structure. It consists of a parent template group which contain
+    * multiple child template group objects.
+    * Each child template group object represents the image template in a particular location.
+    *
+    * @return a virtual block device template group
+    * @see <a href="http://sldn.softlayer.com/reference/services/SoftLayer_Virtual_Guest_Block_Device_Template_Group/getObject" />
+    */
+   @Named("VirtualGuestBlockDeviceTemplateGroup:getObject")
+   @GET
+   @Path("/SoftLayer_Virtual_Guest_Block_Device_Template_Group/{id}/getObject")
+   @QueryParams(keys = "objectMask", values = MASK)
+   @Fallback(NullOnNotFoundOr404.class)
+   VirtualGuestBlockDeviceTemplateGroup getObject(@PathParam("id") String id);
 }

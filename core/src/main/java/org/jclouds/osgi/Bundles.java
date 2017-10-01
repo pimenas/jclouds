@@ -22,6 +22,7 @@ import static org.jclouds.util.Strings2.toStringAndClose;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 
 import org.osgi.framework.Bundle;
@@ -41,7 +42,7 @@ public final class Bundles {
    /**
     * instantiates the supplied classnames using the bundle classloader, and casts to the supplied type. Any errors are
     * silently ignored.
-    * 
+    *
     * @return instances that could be instantiated without error.
     */
    public static <T> ImmutableSet<T> instantiateAvailableClasses(Bundle bundle, Iterable<String> classNames,
@@ -60,7 +61,7 @@ public final class Bundles {
    /**
     * A function that loads classes from the bundle, or returns null if the class isn't found or assignable by the input
     * parameter
-    * 
+    *
     * @param bundle
     *           where to find classes
     * @param clazz
@@ -87,7 +88,7 @@ public final class Bundles {
 
    /**
     * A function that instantiates classes or returns null, if it encounters any problems.
-    * 
+    *
     * @param clazz
     *           superclass to cast as
     */
@@ -97,9 +98,11 @@ public final class Bundles {
          public T apply(Class<?> in) {
             checkNotNull(in, "input class");
             try {
-               return clazz.cast(in.newInstance());
+               return clazz.cast(in.getConstructor().newInstance());
             } catch (InstantiationException e) {
             } catch (IllegalAccessException e) {
+            } catch (InvocationTargetException e) {
+            } catch (NoSuchMethodException e) {
             }
             return null;
          }
@@ -108,7 +111,7 @@ public final class Bundles {
 
    /**
     * Reads the resource from a {@link Bundle}.
-    * 
+    *
     * @param resourcePath
     *           The path to the resource.
     * @param bundle
@@ -131,6 +134,6 @@ public final class Bundles {
    }
 
    private static Iterable<String> splitOrEmptyAndClose(InputStream in) throws IOException {
-      return Splitter.on('\n').omitEmptyStrings().split(toStringAndClose(in));
+      return Splitter.onPattern("\r?\n").omitEmptyStrings().split(toStringAndClose(in));
    }
 }

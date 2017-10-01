@@ -19,8 +19,8 @@ package org.jclouds.glesys.domain;
 import java.beans.ConstructorProperties;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 
 /**
  * Detailed information about an OpenVZ server's limits

@@ -79,12 +79,12 @@ public class DatapointHandler extends ParseSax.HandlerForGeneratedRequestWithRes
    private Double doubleOrNull() {
       String string = currentText.toString().trim();
       if (!string.equals("")) {
-         return new Double(string);
+         return Double.valueOf(string);
       }
       return null;
    }
 
-   public void characters(char ch[], int start, int length) {
+   public void characters(char[] ch, int start, int length) {
       currentText.append(ch, start, length);
    }
 }

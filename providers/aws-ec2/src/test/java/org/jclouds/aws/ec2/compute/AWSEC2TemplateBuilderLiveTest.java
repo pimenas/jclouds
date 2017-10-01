@@ -16,6 +16,7 @@
  */
 package org.jclouds.aws.ec2.compute;
 
+import static org.jclouds.compute.domain.OsFamily.AMZN_LINUX;
 import static org.jclouds.compute.util.ComputeServiceUtils.getCores;
 import static org.jclouds.http.internal.TrackingJavaUrlHttpCommandExecutorService.getInvokerOfRequestAtIndex;
 import static org.testng.Assert.assertEquals;
@@ -28,10 +29,11 @@ import java.util.Set;
 
 import org.jclouds.aws.domain.Region;
 import org.jclouds.aws.ec2.AWSEC2Api;
+import org.jclouds.aws.ec2.AWSEC2ProviderMetadata;
 import org.jclouds.aws.ec2.reference.AWSEC2Constants;
 import org.jclouds.compute.ComputeServiceContext;
+import org.jclouds.compute.domain.Hardware;
 import org.jclouds.compute.domain.OsFamily;
-import org.jclouds.compute.domain.OsFamilyVersion64Bit;
 import org.jclouds.compute.domain.Template;
 import org.jclouds.ec2.EC2Api;
 import org.jclouds.ec2.compute.EC2TemplateBuilderLiveTest;
@@ -46,12 +48,12 @@ import org.jclouds.http.HttpCommand;
 import org.jclouds.http.internal.TrackingJavaUrlHttpCommandExecutorService;
 import org.jclouds.location.reference.LocationConstants;
 import org.jclouds.logging.log4j.config.Log4JLoggingModule;
+import org.jclouds.providers.ProviderMetadata;
 import org.testng.annotations.Test;
 
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.reflect.Invokable;
 import com.google.inject.Module;
 
 @Test(groups = "live", testName = "AWSEC2TemplateBuilderLiveTest")
@@ -61,31 +63,8 @@ public class AWSEC2TemplateBuilderLiveTest extends EC2TemplateBuilderLiveTest {
       provider = "aws-ec2";
    }
 
-   @Override
-   protected Predicate<OsFamilyVersion64Bit> defineUnsupportedOperatingSystems() {
-      return Predicates.not(new Predicate<OsFamilyVersion64Bit>() {
-         @Override
-         public boolean apply(OsFamilyVersion64Bit input) {
-            switch (input.family) {
-            case UBUNTU:
-               return true;
-            case DEBIAN:
-               return true;
-            case RHEL:
-                  return input.version.equals("5.6") || input.version.equals("")
-                           || (input.version.matches("[56].0") && input.is64Bit);
-            case CENTOS:
-               return input.version.matches("5.[0246]") || (input.version.equals("6.0") && input.is64Bit)
-                     || input.version.equals("");
-            case WINDOWS:
-               return input.version.matches("200[38]") || (input.version.equals("7") && !input.is64Bit)
-                     || input.version.equals("");
-            default:
-               return false;
-            }
-         }
-
-      });
+   @Override public ProviderMetadata createProviderMetadata() {
+      return new AWSEC2ProviderMetadata();
    }
 
    @Test
@@ -115,7 +94,7 @@ public class AWSEC2TemplateBuilderLiveTest extends EC2TemplateBuilderLiveTest {
    }
 
    @Test
-   public void testUbuntuInstanceStoreGoesM1SmallNegativeLookaroundDoesntMatchTestImages() {
+   public void testUbuntuInstanceStoreGoesM3MediumNegativeLookaroundDoesntMatchTestImages() {
 
       Template template = view.getComputeService().templateBuilder()
             .imageMatches(EC2ImagePredicates.rootDeviceType(RootDeviceType.INSTANCE_STORE))
@@ -136,15 +115,15 @@ public class AWSEC2TemplateBuilderLiveTest extends EC2TemplateBuilderLiveTest {
       assertEquals(template.getImage().getUserMetadata().get("rootDeviceType"), "instance-store");
       assertEquals(template.getLocation().getId(), "us-east-1");
       assertEquals(getCores(template.getHardware()), 1.0d);
-      assertEquals(template.getHardware().getId(), InstanceType.M1_SMALL);
+      assertEquals(template.getHardware().getId(), InstanceType.M3_MEDIUM);  // smallest non-deprecated supporting PV
       assertEquals(template.getImage().getOperatingSystem().getArch(), "paravirtual");
    }
 
    @Test
-   public void testTemplateBuilderCanUseImageIdAndhardwareIdAndAZ() {
+   public void testTemplateBuilderCanUseImageIdAndHardwareIdAndAZ() {
 
       Template template = view.getComputeService().templateBuilder().imageId("us-east-1/ami-ccb35ea5")
-            .hardwareId(InstanceType.M2_2XLARGE).locationId("us-east-1a").build();
+            .hardwareId(InstanceType.M2_2XLARGE).locationId("us-east-1b").build();
 
       assert template.getImage().getProviderId().startsWith("ami-") : template;
       assertEquals(template.getImage().getOperatingSystem().getVersion(), "5.4");
@@ -152,7 +131,7 @@ public class AWSEC2TemplateBuilderLiveTest extends EC2TemplateBuilderLiveTest {
       assertEquals(template.getImage().getOperatingSystem().getFamily(), OsFamily.CENTOS);
       assertEquals(template.getImage().getVersion(), "4.4.10");
       assertEquals(template.getImage().getUserMetadata().get("rootDeviceType"), "instance-store");
-      assertEquals(template.getLocation().getId(), "us-east-1a");
+      assertEquals(template.getLocation().getId(), "us-east-1b");
       assertEquals(template.getImage().getLocation().getId(), "us-east-1");
       assertEquals(getCores(template.getHardware()), 4.0d);
       assertEquals(template.getHardware().getId(), InstanceType.M2_2XLARGE);
@@ -163,26 +142,25 @@ public class AWSEC2TemplateBuilderLiveTest extends EC2TemplateBuilderLiveTest {
    public void testDefaultTemplateBuilder() throws IOException {
       Template defaultTemplate = view.getComputeService().templateBuilder().build();
       assert defaultTemplate.getImage().getProviderId().startsWith("ami-") : defaultTemplate;
-      assertTrue(defaultTemplate.getImage().getOperatingSystem().getVersion().contains("pv-201"),
-              "Default template version should include 'pv-201' but is "
+      assertTrue(defaultTemplate.getImage().getOperatingSystem().getVersion().contains("201"),
+              "Default template version should include '201' but is "
                       + defaultTemplate.getImage().getOperatingSystem().getVersion());
       assertEquals(defaultTemplate.getImage().getOperatingSystem().is64Bit(), true);
-      assertEquals(defaultTemplate.getImage().getOperatingSystem().getFamily(), OsFamily.AMZN_LINUX);
+      assertEquals(defaultTemplate.getImage().getOperatingSystem().getFamily(), AMZN_LINUX);
       assertEquals(defaultTemplate.getImage().getUserMetadata().get("rootDeviceType"), "ebs");
       assertEquals(defaultTemplate.getLocation().getId(), "us-east-1");
       assertEquals(getCores(defaultTemplate.getHardware()), 1.0d);
-      assertEquals(defaultTemplate.getImage().getOperatingSystem().getArch(), "paravirtual");
+      assertEquals(defaultTemplate.getImage().getOperatingSystem().getArch(), "hvm");
    }
 
    @Test
    public void testAmazonLinuxInstanceStore() throws IOException {
 
-      Template defaultTemplate = view.getComputeService().templateBuilder().osFamily(OsFamily.AMZN_LINUX)
+      Template defaultTemplate = view.getComputeService().templateBuilder().osFamily(AMZN_LINUX)
             .imageMatches(EC2ImagePredicates.rootDeviceType(RootDeviceType.INSTANCE_STORE)).build();
       assert defaultTemplate.getImage().getProviderId().startsWith("ami-") : defaultTemplate;
-      assertEquals(defaultTemplate.getImage().getOperatingSystem().getVersion(), "pv-2013.09.rc-1");
       assertEquals(defaultTemplate.getImage().getOperatingSystem().is64Bit(), true);
-      assertEquals(defaultTemplate.getImage().getOperatingSystem().getFamily(), OsFamily.AMZN_LINUX);
+      assertEquals(defaultTemplate.getImage().getOperatingSystem().getFamily(), AMZN_LINUX);
       assertEquals(defaultTemplate.getImage().getUserMetadata().get("rootDeviceType"), "instance-store");
       assertEquals(defaultTemplate.getLocation().getId(), "us-east-1");
       assertEquals(getCores(defaultTemplate.getHardware()), 1.0d);
@@ -191,16 +169,14 @@ public class AWSEC2TemplateBuilderLiveTest extends EC2TemplateBuilderLiveTest {
 
    @Test
    public void testFastestTemplateBuilder() throws IOException {
-      Template fastestTemplate = view.getComputeService().templateBuilder().fastest().osFamily(OsFamily.AMZN_LINUX)
-            .build();
+      Template fastestTemplate = view.getComputeService().templateBuilder().fastest().osFamily(AMZN_LINUX).build();
       assert fastestTemplate.getImage().getProviderId().startsWith("ami-") : fastestTemplate;
-      assertEquals(fastestTemplate.getHardware().getProviderId(), InstanceType.CC2_8XLARGE);
-      assertEquals(fastestTemplate.getImage().getOperatingSystem().getVersion(), "2011.09.2");
+      assertEquals(fastestTemplate.getHardware().getProviderId(), InstanceType.C4_8XLARGE);
       assertEquals(fastestTemplate.getImage().getOperatingSystem().is64Bit(), true);
-      assertEquals(fastestTemplate.getImage().getOperatingSystem().getFamily(), OsFamily.AMZN_LINUX);
+      assertEquals(fastestTemplate.getImage().getOperatingSystem().getFamily(), AMZN_LINUX);
       assertEquals(fastestTemplate.getImage().getUserMetadata().get("rootDeviceType"), "ebs");
       assertEquals(fastestTemplate.getLocation().getId(), "us-east-1");
-      assertEquals(getCores(fastestTemplate.getHardware()), 16.0d);
+      assertEquals(getCores(fastestTemplate.getHardware()), 36.0d);
       assertEquals(fastestTemplate.getImage().getOperatingSystem().getArch(), "hvm");
    }
 
@@ -242,7 +218,7 @@ public class AWSEC2TemplateBuilderLiveTest extends EC2TemplateBuilderLiveTest {
          assertEquals(template.getImage().getUserMetadata().get("rootDeviceType"), "instance-store");
          assertEquals(template.getLocation().getId(), "us-east-1");
          assertEquals(getCores(template.getHardware()), 1.0d);
-         assertEquals(template.getHardware().getId(), "m1.small");
+         assertEquals(template.getHardware().getId(), "m3.medium"); // smallest non-deprecated supporting PV
 
          // ensure we cache the new image for next time
          assertEquals(context.getComputeService().listImages().size(), 1);
@@ -275,7 +251,7 @@ public class AWSEC2TemplateBuilderLiveTest extends EC2TemplateBuilderLiveTest {
          assertEquals(template.getImage().getUserMetadata().get("rootDeviceType"), "instance-store");
          assertEquals(template.getLocation().getId(), "us-east-1");
          assertEquals(getCores(template.getHardware()), 1.0d);
-         assertEquals(template.getHardware().getId(), "m1.small");
+         assertEquals(template.getHardware().getId(), "m3.medium");  // smallest non-deprecated supporting PV
 
          // ensure we cache the new image for next time
          assertEquals(context.getComputeService().listImages().size(), 1);
@@ -313,14 +289,13 @@ public class AWSEC2TemplateBuilderLiveTest extends EC2TemplateBuilderLiveTest {
 
          Template template = context.getComputeService().templateBuilder().imageId("eu-west-1/ami-a33b06d7").build();
          assert template.getImage().getProviderId().startsWith("ami-") : template;
-         assertEquals(template.getImage().getOperatingSystem().getVersion(), "2011.09.2");
          assertEquals(template.getImage().getOperatingSystem().is64Bit(), true);
-         assertEquals(template.getImage().getOperatingSystem().getFamily(), OsFamily.AMZN_LINUX);
+         assertEquals(template.getImage().getOperatingSystem().getFamily(), AMZN_LINUX);
          assertEquals(template.getImage().getVersion(), "2011.09.2");
          assertEquals(template.getImage().getUserMetadata().get("rootDeviceType"), "instance-store");
          assertEquals(template.getLocation().getId(), "eu-west-1");
          assertEquals(getCores(template.getHardware()), 1.0d);
-         assertEquals(template.getHardware().getId(), "m1.small");
+         assertEquals(template.getHardware().getId(), "m3.medium");  // smallest non-deprecated supporting PV
 
       } finally {
          if (context != null)
@@ -331,11 +306,11 @@ public class AWSEC2TemplateBuilderLiveTest extends EC2TemplateBuilderLiveTest {
    private static void assertOnlyOneRegionQueriedForAvailabilityZone(List<HttpCommand> commandsInvoked)
          throws NoSuchMethodException {
       assert commandsInvoked.size() == 2 : commandsInvoked;
-      assertEquals(getInvokerOfRequestAtIndex(commandsInvoked, 0),
-            AvailabilityZoneAndRegionApi.class.getMethod("describeRegions", DescribeRegionsOptions[].class));
-      assertEquals(getInvokerOfRequestAtIndex(commandsInvoked, 1),
+      assertInvokedCommand(getInvokerOfRequestAtIndex(commandsInvoked, 0), Invokable.from(
+            AvailabilityZoneAndRegionApi.class.getMethod("describeRegions", DescribeRegionsOptions[].class)));
+      assertInvokedCommand(getInvokerOfRequestAtIndex(commandsInvoked, 1), Invokable.from(
             AvailabilityZoneAndRegionApi.class.getMethod("describeAvailabilityZonesInRegion", String.class,
-                  DescribeAvailabilityZonesOptions[].class));
+                  DescribeAvailabilityZonesOptions[].class)));
    }
 
    @Test
@@ -349,6 +324,27 @@ public class AWSEC2TemplateBuilderLiveTest extends EC2TemplateBuilderLiveTest {
       assertEquals(defaultTemplate.getImage().getId(), imageId);
    }
    
+   @Override
+   public void testCompareSizes() throws Exception {
+      Hardware defaultSize = view.getComputeService().templateBuilder().build().getHardware();
+
+      Hardware smallest = view.getComputeService().templateBuilder().smallest().build().getHardware();
+      Hardware fastest = view.getComputeService().templateBuilder().fastest().build().getHardware();
+      Hardware biggest = view.getComputeService().templateBuilder().biggest().build().getHardware();
+
+      assertEquals(defaultSize, smallest);
+
+      assert getCores(smallest) <= getCores(fastest) : String.format("%s ! <= %s", smallest, fastest);
+      // m4.10xlarge is slower but has more cores than c4.8xlarge
+      // assert getCores(biggest) <= getCores(fastest) : String.format("%s ! <= %s", biggest, fastest);
+      // assert getCores(fastest) >= getCores(biggest) : String.format("%s ! >= %s", fastest, biggest);
+
+      assert biggest.getRam() >= fastest.getRam() : String.format("%s ! >= %s", biggest, fastest);
+      assert biggest.getRam() >= smallest.getRam() : String.format("%s ! >= %s", biggest, smallest);
+
+      assert getCores(fastest) >= getCores(smallest) : String.format("%s ! >= %s", fastest, smallest);
+   }
+   
    @Test
    public void testAssignability() {
       view.unwrapApi(EC2Api.class);
@@ -357,7 +353,7 @@ public class AWSEC2TemplateBuilderLiveTest extends EC2TemplateBuilderLiveTest {
 
    @Override
    protected Set<String> getIso3166Codes() {
-      return ImmutableSet.<String> of("US-VA", "US-CA", "US-OR", "BR-SP", "IE", "SG", "AU-NSW", "JP-13");
+      return ImmutableSet.of("US-VA", "US-OH", "US-CA", "US-OR", "CA", "BR-SP", "IE", "GB-LND", "DE-HE", "SG", "AU-NSW", "IN-MH", "JP-13", "KR-11", "CN-11");
    }
 
 }

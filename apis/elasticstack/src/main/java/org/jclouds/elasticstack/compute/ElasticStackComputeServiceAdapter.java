@@ -104,7 +104,7 @@ public class ElasticStackComputeServiceAdapter implements
 
    @Override
    public NodeAndInitialCredentials<ServerInfo> createNodeWithGroupEncodedIntoName(String tag, String name, Template template) {
-      long bootSize = (long) (template.getHardware().getVolumes().get(0).getSize() * 1024 * 1024 * 1024l);
+      long bootSize = (long) (template.getHardware().getVolumes().get(0).getSize() * 1024 * 1024 * 1024L);
 
       logger.debug(">> creating boot drive bytes(%d)", bootSize);
       DriveInfo drive = client
@@ -118,7 +118,14 @@ public class ElasticStackComputeServiceAdapter implements
       }
 
       logger.debug(">> imaging boot drive source(%s)", template.getImage().getId());
-      client.imageDrive(template.getImage().getId(), drive.getUuid(), ImageConversionType.GUNZIP);
+      try {
+         client.imageDrive(template.getImage().getId(), drive.getUuid(), ImageConversionType.GUNZIP);
+      } catch (IllegalStateException ex) {
+         logger.debug(">> could not image drive(%s). Cleaning up resources. [%s]", drive.getUuid(), ex.getMessage());
+         client.destroyDrive(drive.getUuid());
+         throw ex;
+      }
+
       boolean ready = driveNotClaimed.apply(drive);
       if (!ready) {
          client.destroyDrive(drive.getUuid());
@@ -152,7 +159,7 @@ public class ElasticStackComputeServiceAdapter implements
                @Override
                public boolean apply(Image input) {
                   String toParse = input.getUserMetadata().get("size");
-                  return toParse != null && new Float(toParse) <= size;
+                  return toParse != null && Float.parseFloat(toParse) <= size;
                }
 
                @Override

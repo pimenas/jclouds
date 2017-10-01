@@ -44,6 +44,7 @@ import org.testng.annotations.AfterGroups;
 import org.testng.annotations.BeforeGroups;
 import org.testng.annotations.Test;
 
+import com.google.common.base.Objects;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.net.HostAndPort;
@@ -85,7 +86,7 @@ public class LoadBalancerApiLiveTest extends BaseCloudStackApiLiveTest {
    public void testCreateVm() {
       if (networksDisabled)
          return;
-      String defaultTemplate = template != null ? template.getImageId() : null;
+      String defaultTemplate = templateBuilderSpec != null ? templateBuilderSpec.getImageId() : null;
       vm = VirtualMachineApiLiveTest.createVirtualMachineInNetwork(network,
             defaultTemplateOrPreferredInZone(defaultTemplate, client, network.getZoneId()),
             client, jobComplete, virtualMachineRunning);
@@ -113,7 +114,7 @@ public class LoadBalancerApiLiveTest extends BaseCloudStackApiLiveTest {
          }
       }
       assertNotNull(rule, "Failed to get a load balancer rule after " + attempts + " attempts");
-      assert rule.getPublicIPId() == ip.getId() : rule;
+      assertEquals(rule.getPublicIPId(), ip.getId());
       assertEquals(rule.getPublicPort(), 22);
       assertEquals(rule.getPrivatePort(), 22);
       assertEquals(rule.getAlgorithm(), Algorithm.LEASTCONN);
@@ -190,7 +191,7 @@ public class LoadBalancerApiLiveTest extends BaseCloudStackApiLiveTest {
    public void testListLoadBalancerRules() throws Exception {
       Set<LoadBalancerRule> response = client.getLoadBalancerApi().listLoadBalancerRules();
       assert null != response;
-      assertTrue(response.size() >= 0);
+      assertTrue(response.size() > 0);
       for (LoadBalancerRule rule : response) {
          LoadBalancerRule newDetails = findRuleWithId(rule.getId());
          assertEquals(rule.getId(), newDetails.getId());
@@ -203,7 +204,7 @@ public class LoadBalancerApiLiveTest extends BaseCloudStackApiLiveTest {
 
          @Override
          public boolean apply(LoadBalancerRule arg0) {
-            return arg0.getId() == id;
+            return Objects.equal(arg0.getId(), id);
          }
 
       });

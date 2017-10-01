@@ -23,7 +23,6 @@ import static com.google.common.base.Throwables.propagate;
 import static com.google.common.collect.Iterables.filter;
 import static com.google.common.collect.Maps.newLinkedHashMap;
 import static com.google.common.collect.Sets.newLinkedHashSet;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.jclouds.compute.config.ComputeServiceProperties.TIMEOUT_NODE_RUNNING;
 import static org.jclouds.compute.config.ComputeServiceProperties.TIMEOUT_NODE_SUSPENDED;
 import static org.jclouds.compute.config.ComputeServiceProperties.TIMEOUT_NODE_TERMINATED;
@@ -32,7 +31,6 @@ import static org.jclouds.compute.predicates.NodePredicates.all;
 import static org.jclouds.compute.util.ComputeServiceUtils.formatStatus;
 import static org.jclouds.concurrent.FutureIterables.awaitCompletion;
 import static org.jclouds.concurrent.FutureIterables.transformParallel;
-import static org.jclouds.util.Predicates2.retry;
 
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -66,6 +64,7 @@ import org.jclouds.compute.domain.Template;
 import org.jclouds.compute.domain.TemplateBuilder;
 import org.jclouds.compute.extensions.ImageExtension;
 import org.jclouds.compute.extensions.SecurityGroupExtension;
+import org.jclouds.compute.extensions.internal.DelegatingImageExtension;
 import org.jclouds.compute.options.RunScriptOptions;
 import org.jclouds.compute.options.TemplateOptions;
 import org.jclouds.compute.reference.ComputeServiceConstants;
@@ -80,6 +79,7 @@ import org.jclouds.compute.strategy.RebootNodeStrategy;
 import org.jclouds.compute.strategy.ResumeNodeStrategy;
 import org.jclouds.compute.strategy.RunScriptOnNodeAndAddToGoodMapOrPutExceptionIntoBadMap;
 import org.jclouds.compute.strategy.SuspendNodeStrategy;
+import org.jclouds.compute.suppliers.ImageCacheSupplier;
 import org.jclouds.domain.Credentials;
 import org.jclouds.domain.Location;
 import org.jclouds.domain.LoginCredentials;
@@ -180,8 +180,13 @@ public class BaseComputeService implements ComputeService {
       this.runScriptOnNodeFactory = checkNotNull(runScriptOnNodeFactory, "runScriptOnNodeFactory");
       this.persistNodeCredentials = checkNotNull(persistNodeCredentials, "persistNodeCredentials");
       this.userExecutor = checkNotNull(userExecutor, "userExecutor");
-      this.imageExtension = checkNotNull(imageExtension, "imageExtension");
       this.securityGroupExtension = checkNotNull(securityGroupExtension, "securityGroupExtension");
+      if (imageExtension.isPresent() && images instanceof ImageCacheSupplier) {
+         this.imageExtension = Optional.<ImageExtension> of(new DelegatingImageExtension(ImageCacheSupplier.class
+               .cast(images), imageExtension.get()));
+      } else {
+         this.imageExtension = checkNotNull(imageExtension, "imageExtension");
+      }
    }
 
    /**
@@ -249,7 +254,7 @@ public class BaseComputeService implements ComputeService {
     * {@inheritDoc}
     */
    @Override
-   public Set<? extends NodeMetadata> destroyNodesMatching(Predicate<NodeMetadata> filter) {
+   public Set<? extends NodeMetadata> destroyNodesMatching(Predicate<? super NodeMetadata> filter) {
       logger.debug(">> destroying nodes matching(%s)", filter);
       Set<NodeMetadata> destroyNodes = ImmutableSet.copyOf(transformParallel(nodesMatchingFilterAndNotTerminated(filter),
             new Function<NodeMetadata, ListenableFuture<? extends NodeMetadata>>() {
@@ -284,33 +289,21 @@ public class BaseComputeService implements ComputeService {
    protected NodeMetadata doDestroyNode(final String id) {
       checkNotNull(id, "id");
       logger.debug(">> destroying node(%s)", id);
-      final AtomicReference<NodeMetadata> node = Atomics.newReference();
-      Predicate<String> tester = retry(new Predicate<String>() {
-         public boolean apply(String input) {
-            try {
-               NodeMetadata md = destroyNodeStrategy.destroyNode(id);
-               if (md != null)
-                  node.set(md);
-               return true;
-            } catch (IllegalStateException e) {
-               logger.warn("<< illegal state destroying node(%s)", id);
-               return false;
-            }
-         }
-      }, timeouts.nodeTerminated, 1000, MILLISECONDS);
-
-      boolean successful = tester.apply(id) && (node.get() == null || nodeTerminated.apply(node));
+      NodeMetadata nodeMetadata = destroyNodeStrategy.destroyNode(id);
+      if (nodeMetadata == null) return null;
+      final AtomicReference<NodeMetadata> node = Atomics.newReference(nodeMetadata);
+      boolean successful = node.get() == null || nodeTerminated.apply(node);
       if (successful)
          credentialStore.remove("node#" + id);
       logger.debug("<< destroyed node(%s) success(%s)", id, successful);
-      return node.get();
+      return nodeMetadata;
    }
 
    protected void cleanUpIncidentalResourcesOfDeadNodes(Set<? extends NodeMetadata> deadNodes) {
       // no-op; to be overridden
    }
 
-   Iterable<? extends NodeMetadata> nodesMatchingFilterAndNotTerminated(Predicate<NodeMetadata> filter) {
+   Iterable<? extends NodeMetadata> nodesMatchingFilterAndNotTerminated(Predicate<? super NodeMetadata> filter) {
       return filter(detailsOnAllNodes(), and(checkNotNull(filter, "filter"), not(TERMINATED)));
    }
 
@@ -319,7 +312,7 @@ public class BaseComputeService implements ComputeService {
     *            if none found
     */
    Iterable<? extends NodeMetadata> nodesMatchingFilterAndNotTerminatedExceptionIfNotFound(
-         Predicate<NodeMetadata> filter) {
+         Predicate<? super NodeMetadata> filter) {
       Iterable<? extends NodeMetadata> nodes = nodesMatchingFilterAndNotTerminated(filter);
       if (Iterables.isEmpty(nodes))
          throw new NoSuchElementException("no nodes matched filter: " + filter);
@@ -330,9 +323,9 @@ public class BaseComputeService implements ComputeService {
     * {@inheritDoc}
     */
    @Override
-   public Set<ComputeMetadata> listNodes() {
+   public Set<? extends ComputeMetadata> listNodes() {
       logger.trace(">> listing nodes");
-      Set<ComputeMetadata> set = newLinkedHashSet(listNodesStrategy.listNodes());
+      Set<? extends ComputeMetadata> set = newLinkedHashSet(listNodesStrategy.listNodes());
       logger.trace("<< list(%d)", set.size());
       return set;
    }
@@ -344,7 +337,7 @@ public class BaseComputeService implements ComputeService {
    public Set<? extends NodeMetadata> listNodesByIds(Iterable<String> ids) {
       checkNotNull(ids, "ids");
       logger.trace(">> listing node with ids(%s)", ids);
-      Set<NodeMetadata> set = ImmutableSet.copyOf(listNodesStrategy.listNodesByIds(ids));
+      Set<? extends NodeMetadata> set = ImmutableSet.copyOf(listNodesStrategy.listNodesByIds(ids));
       logger.trace("<< list(%d)", set.size());
       return set;
    }
@@ -353,10 +346,10 @@ public class BaseComputeService implements ComputeService {
     * {@inheritDoc}
     */
    @Override
-   public Set<? extends NodeMetadata> listNodesDetailsMatching(Predicate<ComputeMetadata> filter) {
+   public Set<? extends NodeMetadata> listNodesDetailsMatching(Predicate<? super NodeMetadata> filter) {
       checkNotNull(filter, "filter");
       logger.trace(">> listing node details matching(%s)", filter);
-      Set<NodeMetadata> set = newLinkedHashSet(listNodesStrategy.listDetailsOnNodesMatching(filter));
+      Set<? extends NodeMetadata> set = newLinkedHashSet(listNodesStrategy.listDetailsOnNodesMatching(filter));
       logger.trace("<< list(%d)", set.size());
       return set;
    }
@@ -427,7 +420,7 @@ public class BaseComputeService implements ComputeService {
     * {@inheritDoc}
     */
    @Override
-   public Set<? extends NodeMetadata> rebootNodesMatching(Predicate<NodeMetadata> filter) {
+   public Set<? extends NodeMetadata> rebootNodesMatching(Predicate<? super NodeMetadata> filter) {
       logger.debug(">> rebooting nodes matching(%s)", filter);
       Set<NodeMetadata> rebootNodes = ImmutableSet.copyOf(transformParallel(nodesMatchingFilterAndNotTerminated(filter),
             new Function<NodeMetadata, ListenableFuture<? extends NodeMetadata>>() {
@@ -468,7 +461,7 @@ public class BaseComputeService implements ComputeService {
     * {@inheritDoc}
     */
    @Override
-   public Set<? extends NodeMetadata> resumeNodesMatching(Predicate<NodeMetadata> filter) {
+   public Set<? extends NodeMetadata> resumeNodesMatching(Predicate<? super NodeMetadata> filter) {
       logger.debug(">> resuming nodes matching(%s)", filter);
       Set<NodeMetadata> resumeNodes = ImmutableSet.copyOf(transformParallel(nodesMatchingFilterAndNotTerminated(filter),
             new Function<NodeMetadata, ListenableFuture<? extends NodeMetadata>>() {
@@ -509,7 +502,7 @@ public class BaseComputeService implements ComputeService {
     * {@inheritDoc}
     */
    @Override
-   public Set<? extends NodeMetadata> suspendNodesMatching(Predicate<NodeMetadata> filter) {
+   public Set<? extends NodeMetadata> suspendNodesMatching(Predicate<? super NodeMetadata> filter) {
       logger.debug(">> suspending nodes matching(%s)", filter);
       Set<NodeMetadata> suspendNodes = ImmutableSet.copyOf(transformParallel(nodesMatchingFilterAndNotTerminated(filter),
             new Function<NodeMetadata, ListenableFuture<? extends NodeMetadata>>() {
@@ -538,7 +531,7 @@ public class BaseComputeService implements ComputeService {
     * {@inheritDoc}
     */
    @Override
-   public Map<NodeMetadata, ExecResponse> runScriptOnNodesMatching(Predicate<NodeMetadata> filter, String runScript)
+   public Map<NodeMetadata, ExecResponse> runScriptOnNodesMatching(Predicate<? super NodeMetadata> filter, String runScript)
          throws RunScriptOnNodesException {
       return runScriptOnNodesMatching(filter, Statements.literal(checkNotNull(runScript, "runScript")));
    }
@@ -547,13 +540,13 @@ public class BaseComputeService implements ComputeService {
     * {@inheritDoc}
     */
    @Override
-   public Map<NodeMetadata, ExecResponse> runScriptOnNodesMatching(Predicate<NodeMetadata> filter, Statement runScript)
+   public Map<NodeMetadata, ExecResponse> runScriptOnNodesMatching(Predicate<? super NodeMetadata> filter, Statement runScript)
          throws RunScriptOnNodesException {
       return runScriptOnNodesMatching(filter, runScript, RunScriptOptions.NONE);
    }
 
    @Override
-   public Map<? extends NodeMetadata, ExecResponse> runScriptOnNodesMatching(Predicate<NodeMetadata> filter,
+   public Map<? extends NodeMetadata, ExecResponse> runScriptOnNodesMatching(Predicate<? super NodeMetadata> filter,
          String runScript, RunScriptOptions options) throws RunScriptOnNodesException {
       return runScriptOnNodesMatching(filter, Statements.literal(checkNotNull(runScript, "runScript")), options);
    }
@@ -562,7 +555,7 @@ public class BaseComputeService implements ComputeService {
     * {@inheritDoc}
     */
    @Override
-   public Map<NodeMetadata, ExecResponse> runScriptOnNodesMatching(Predicate<NodeMetadata> filter, Statement runScript,
+   public Map<NodeMetadata, ExecResponse> runScriptOnNodesMatching(Predicate<? super NodeMetadata> filter, Statement runScript,
          RunScriptOptions options) throws RunScriptOnNodesException {
 
       checkNotNull(filter, "filter");

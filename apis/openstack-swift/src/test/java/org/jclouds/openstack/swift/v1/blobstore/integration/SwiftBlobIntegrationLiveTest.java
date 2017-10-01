@@ -16,6 +16,8 @@
  */
 package org.jclouds.openstack.swift.v1.blobstore.integration;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.failBecauseExceptionWasNotThrown;
 import static org.jclouds.openstack.keystone.v2_0.config.KeystoneProperties.CREDENTIAL_TYPE;
 
 import java.util.Properties;
@@ -28,7 +30,7 @@ import org.testng.annotations.Test;
 
 @Test(groups = "live", testName = "SwiftBlobIntegrationLiveTest")
 public class SwiftBlobIntegrationLiveTest extends BaseBlobIntegrationTest {
-   
+
    public SwiftBlobIntegrationLiveTest() {
       provider = "openstack-swift";
    }
@@ -68,9 +70,63 @@ public class SwiftBlobIntegrationLiveTest extends BaseBlobIntegrationTest {
       return 422;
    }
 
+   // not supported
+   @Override
+   protected void checkCacheControl(Blob blob, String cacheControl) {
+      assertThat(blob.getPayload().getContentMetadata().getCacheControl()).isNull();
+      assertThat(blob.getMetadata().getContentMetadata().getCacheControl()).isNull();
+   }
+
+   // not supported
    @Override
    protected void checkContentLanguage(Blob blob, String contentLanguage) {
       assert blob.getPayload().getContentMetadata().getContentLanguage() == null;
       assert blob.getMetadata().getContentMetadata().getContentLanguage() == null;
+   }
+
+   @Override
+   public void testSetBlobAccess() throws Exception {
+      throw new SkipException("unsupported in swift");
+   }
+
+   @Override
+   @Test(expectedExceptions = UnsupportedOperationException.class)
+   public void testPutBlobAccess() throws Exception {
+      super.testPutBlobAccess();
+   }
+
+   @Override
+   @Test(expectedExceptions = UnsupportedOperationException.class)
+   public void testPutBlobAccessMultipart() throws Exception {
+      super.testPutBlobAccessMultipart();
+   }
+
+   @Override
+   @Test(expectedExceptions = UnsupportedOperationException.class)
+   public void testCopyIfNoneMatch() throws Exception {
+      super.testCopyIfNoneMatch();
+   }
+
+   @Override
+   @Test(expectedExceptions = UnsupportedOperationException.class)
+   public void testCopyIfNoneMatchNegative() throws Exception {
+      super.testCopyIfNoneMatchNegative();
+   }
+
+   @Override
+   public void testListMultipartUploads() throws Exception {
+      try {
+         super.testListMultipartUploads();
+         failBecauseExceptionWasNotThrown(UnsupportedOperationException.class);
+      } catch (UnsupportedOperationException uoe) {
+         throw new SkipException("Swift does not support listing multipart uploads", uoe);
+      }
+   }
+
+   // TODO: testCopyIfModifiedSinceNegative throws HTTP 304 not 412 error
+
+   @Override
+   protected long getMinimumMultipartBlobSize() {
+      return 1;
    }
 }

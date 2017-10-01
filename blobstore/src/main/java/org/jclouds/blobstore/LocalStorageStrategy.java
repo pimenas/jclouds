@@ -17,8 +17,13 @@
 package org.jclouds.blobstore;
 
 import java.io.IOException;
+import java.util.Collection;
 
 import org.jclouds.blobstore.domain.Blob;
+import org.jclouds.blobstore.domain.BlobAccess;
+import org.jclouds.blobstore.domain.ContainerAccess;
+import org.jclouds.blobstore.domain.StorageMetadata;
+import org.jclouds.blobstore.options.CreateContainerOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.domain.Location;
 
@@ -38,7 +43,7 @@ public interface LocalStorageStrategy {
      * Return an iterator that reports all the containers under base path
      * @return
      */
-    Iterable<String> getAllContainerNames();
+    Collection<String> getAllContainerNames();
 
     /**
      * Creates a new container
@@ -46,7 +51,11 @@ public interface LocalStorageStrategy {
      * @param container
      * @return
      */
-    boolean createContainerInLocation(String container, Location location);
+    boolean createContainerInLocation(String container, Location location, CreateContainerOptions options);
+
+    ContainerAccess getContainerAccess(String container);
+
+    void setContainerAccess(String container, ContainerAccess access);
 
     /**
      * Deletes a container and all its content
@@ -71,6 +80,9 @@ public interface LocalStorageStrategy {
      *           recursion and path to clear
      */
     void clearContainer(String container, ListContainerOptions options);
+
+    /** @return StorageMetadata associated with a container name, e.g., creation date and location, or null if container does not exist */
+    StorageMetadata getContainerMetadata(String container);
 
     /**
      * Return true if a blob named by key exists
@@ -117,6 +129,10 @@ public interface LocalStorageStrategy {
      * @param key
      */
     void removeBlob(String container, String key);
+
+    BlobAccess getBlobAccess(String container, String key);
+
+    void setBlobAccess(String container, String key, BlobAccess access);
 
     /**
      * @param containerName name of container

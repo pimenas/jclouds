@@ -131,15 +131,15 @@ public class JschSshClient implements SshClient {
       checkArgument(loginCredentials.getOptionalPassword().isPresent() || loginCredentials.hasUnencryptedPrivateKey() || agentConnector.isPresent(),
                "you must specify a password, a key or an SSH agent needs to be available");
       this.backoffLimitedRetryHandler = checkNotNull(backoffLimitedRetryHandler, "backoffLimitedRetryHandler");
-      if (loginCredentials.getOptionalPassword().isPresent()) {
-         this.toString = String.format("%s:pw[%s]@%s:%d", loginCredentials.getUser(),
-               base16().lowerCase().encode(md5().hashString(loginCredentials.getOptionalPassword().get(), UTF_8).asBytes()), host,
-               socket.getPort());
-      } else if (loginCredentials.hasUnencryptedPrivateKey()) {
+      if (loginCredentials.hasUnencryptedPrivateKey()) {
          String fingerPrint = fingerprintPrivateKey(loginCredentials.getOptionalPrivateKey().get());
          String sha1 = sha1PrivateKey(loginCredentials.getOptionalPrivateKey().get());
          this.toString = String.format("%s:rsa[fingerprint(%s),sha1(%s)]@%s:%d", loginCredentials.getUser(),
                  fingerPrint, sha1, host, socket.getPort());
+      } else if (loginCredentials.getOptionalPassword().isPresent()) {
+         this.toString = String.format("%s:pw[%s]@%s:%d", loginCredentials.getUser(),
+               base16().lowerCase().encode(md5().hashString(loginCredentials.getOptionalPassword().get(), UTF_8).asBytes()), host,
+               socket.getPort());
       } else {
          this.toString = String.format("%s:rsa[ssh-agent]@%s:%d", loginCredentials.getUser(), host, socket.getPort());
       }
@@ -154,8 +154,8 @@ public class JschSshClient implements SshClient {
    }
 
    private void checkConnected() {
-      checkState(sessionConnection.getSession() != null && sessionConnection.getSession().isConnected(), String.format(
-               "(%s) Session not connected!", toString()));
+      checkState(sessionConnection.getSession() != null && sessionConnection.getSession().isConnected(),
+               "(%s) Session not connected!", this);
    }
 
    public interface Connection<T> {
@@ -190,8 +190,7 @@ public class JschSshClient implements SshClient {
             }
          }
       }
-      assert false : "should not reach here";
-      return null;
+      throw new AssertionError("should not reach here");
    }
 
    public void connect() {
@@ -340,9 +339,15 @@ public class JschSshClient implements SshClient {
       return toString;
    }
 
+   @Override
    @PreDestroy
    public void disconnect() {
       sessionConnection.clear();
+   }
+
+   @Override
+   public boolean isConnected() {
+      return sessionConnection.getSession().isConnected();
    }
 
    protected ConnectionWithStreams<ChannelExec> execConnection(final String command) {

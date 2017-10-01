@@ -17,15 +17,17 @@
 package org.jclouds.softlayer.features;
 
 import static com.google.common.base.Preconditions.checkState;
-import static org.jclouds.softlayer.compute.strategy.SoftLayerComputeServiceAdapter.VirtualGuestHasLoginDetailsPresent;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.jclouds.util.Predicates2.retry;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 import java.util.Properties;
 import java.util.Set;
 
 import org.jclouds.softlayer.SoftLayerApi;
+import org.jclouds.softlayer.compute.strategy.SoftLayerComputeServiceAdapter.VirtualGuestHasLoginDetailsPresent;
 import org.jclouds.softlayer.domain.ContainerVirtualGuestConfiguration;
 import org.jclouds.softlayer.domain.Datacenter;
 import org.jclouds.softlayer.domain.OperatingSystem;
@@ -36,6 +38,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import com.google.common.base.Predicate;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.inject.Injector;
@@ -47,20 +50,21 @@ import com.google.inject.Module;
 @Test(groups = "live")
 public class VirtualGuestApiLiveTest extends BaseSoftLayerApiLiveTest {
 
-   public static final String DATACENTER = "dal05";
-
    private VirtualGuestApi virtualGuestApi;
    private Predicate<VirtualGuest> loginDetailsTester;
    private VirtualGuestHasLoginDetailsPresent virtualGuestHasLoginDetailsPresent;
    private long guestLoginDelay = 60 * 60 * 1000;
 
    private VirtualGuest virtualGuest = null;
+   private Datacenter datacenter = null;
 
    @BeforeClass(groups = {"integration", "live"})
    @Override
    public void setup() {
       super.setup();
       virtualGuestApi = api.getVirtualGuestApi();
+      datacenter = Iterables.get(api.getDatacenterApi().listDatacenters(), 0);
+      assertNotNull(datacenter, "Datacenter must not be null");
    }
 
    @AfterClass(groups = {"integration", "live"})
@@ -93,7 +97,7 @@ public class VirtualGuestApiLiveTest extends BaseSoftLayerApiLiveTest {
               .startCpus(1)
               .maxMemory(1024)
               .operatingSystem(OperatingSystem.builder().id("CENTOS_6_64").operatingSystemReferenceCode("CENTOS_6_64").build())
-              .datacenter(Datacenter.builder().name(DATACENTER).build())
+              .datacenter(Datacenter.builder().name(datacenter.getName()).build())
               .build();
 
       virtualGuest = virtualGuestApi.createVirtualGuest(virtualGuestRequest);
@@ -110,21 +114,44 @@ public class VirtualGuestApiLiveTest extends BaseSoftLayerApiLiveTest {
    public void testGetVirtualGuest() throws Exception {
       VirtualGuest found = virtualGuestApi.getVirtualGuest(virtualGuest.getId());
       assertEquals(found, virtualGuest);
+      assertNull(found.getPrimaryBackendNetworkComponent(), "backendNetworkComponent should be null");
    }
 
    @Test(dependsOnMethods = "testGetVirtualGuest")
+   public void testGetVirtualGuestFiltered() throws Exception {
+      VirtualGuest found = virtualGuestApi.getVirtualGuestFiltered(virtualGuest.getId(), "id;primaryBackendNetworkComponent;primaryBackendNetworkComponent.networkVlan");
+      assertEquals(found.getId(), virtualGuest.getId());
+      assertNotNull(found.getPrimaryBackendNetworkComponent(), "backendNetworkComponent must be returned");
+      assertNotNull(found.getPrimaryBackendNetworkComponent().getNetworkVlan(), "backendNetworkComponent networkVlan must be returned");
+      assertTrue(found.getPrimaryBackendNetworkComponent().getNetworkVlan().getId() > 0, "backendNetworkComponent must have a valid networkVlan ID");
+   }
+
+   @Test(dependsOnMethods = "testGetVirtualGuestFiltered")
    public void testSetTagsOnVirtualGuest() throws Exception {
       ImmutableSet<String> tags = ImmutableSet.of("test", "jclouds");
       assertTrue(virtualGuestApi.setTags(virtualGuest.getId(), tags));
       VirtualGuest found = virtualGuestApi.getVirtualGuest(virtualGuest.getId());
       Set<TagReference> tagReferences = found.getTagReferences();
       assertNotNull(tagReferences);
-      for (String tag : tags) {
-         Iterables.contains(tagReferences, tag);
+
+      ImmutableSet.Builder<String> actualTagsBuilder = ImmutableSet.builder();
+      for (TagReference ref : tagReferences) {
+         actualTagsBuilder.add(ref.getTag().getName());
       }
+      Set<String> actualTags = actualTagsBuilder.build();
+      assertThat(actualTags).containsAll(tags);
    }
 
    @Test(dependsOnMethods = "testSetTagsOnVirtualGuest")
+   public void testSetNotesOnVirtualGuest() throws Exception {
+      // Test with maximum allowed notes length - 1000 characters.
+      String notes = Strings.padStart("", 1000, 'x');
+      assertTrue(virtualGuestApi.setNotes(virtualGuest.getId(), notes));
+      VirtualGuest found = virtualGuestApi.getNotes(virtualGuest.getId());
+      assertEquals(found.getNotes(), notes);
+   }
+
+   @Test(dependsOnMethods = "testSetNotesOnVirtualGuest")
    public void testPauseVirtualGuest() throws Exception {
       virtualGuestApi.pauseVirtualGuest(virtualGuest.getId());
       checkState(retry(new Predicate<VirtualGuest>() {

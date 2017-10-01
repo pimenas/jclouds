@@ -17,6 +17,9 @@
 package org.jclouds.filesystem;
 
 import static com.google.common.io.BaseEncoding.base16;
+import static org.jclouds.filesystem.util.Utils.isMacOSX;
+import static org.jclouds.utils.TestUtils.NO_INVOCATIONS;
+import static org.jclouds.utils.TestUtils.SINGLE_NO_ARG_INVOCATION;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -31,6 +34,7 @@ import java.net.URI;
 import java.util.Iterator;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobRequestSigner;
@@ -57,11 +61,14 @@ import org.jclouds.util.Closeables2;
 import org.jclouds.util.Strings2;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.common.io.ByteSource;
 import com.google.common.io.Files;
+import com.google.common.util.concurrent.Uninterruptibles;
 import com.google.inject.CreationException;
 
 @Test(groups = "unit", testName = "FilesystemBlobStoreTest", singleThreaded = true)
@@ -86,6 +93,7 @@ public class FilesystemBlobStoreTest {
         // create context for filesystem container
         Properties prop = new Properties();
         prop.setProperty(FilesystemConstants.PROPERTY_BASEDIR, TestUtils.TARGET_BASE_DIR);
+        prop.setProperty(FilesystemConstants.PROPERTY_AUTO_DETECT_CONTENT_TYPE, "false");
         context = ContextBuilder.newBuilder(PROVIDER).overrides(prop).build(BlobStoreContext.class);
         // create a container in the default location
         blobStore = context.getBlobStore();
@@ -165,11 +173,28 @@ public class FilesystemBlobStoreTest {
         checkForContainerContent(CONTAINER_NAME, null);
 
         // creates blobs in first container
-        Set<String> blobsExpected = TestUtils.createBlobsInContainer(CONTAINER_NAME, "bbb" + File.separator + "ccc"
-                + File.separator + "ddd" + File.separator + "1234.jpg", "4rrr.jpg", "rrr" + File.separator + "sss"
-                + File.separator + "788.jpg", "xdc" + File.separator + "wert.kpg");
+        Set<String> blobsExpected = TestUtils.createBlobsInContainer(CONTAINER_NAME,
+              "bbb/ccc/ddd/1234.jpg",
+              "4rrr.jpg",
+              "rrr/sss/788.jpg",
+              "xdc/wert.kpg");
 
         checkForContainerContent(CONTAINER_NAME, blobsExpected);
+    }
+
+    @Test
+    public void testList_RootNonRecursive() throws IOException {
+        blobStore.createContainerInLocation(null, CONTAINER_NAME);
+        // Testing list for an empty container
+        checkForContainerContent(CONTAINER_NAME, null);
+
+        TestUtils.createBlobsInContainer(CONTAINER_NAME, "a");
+        ListContainerOptions options = ListContainerOptions.Builder
+                .withDetails()
+                .inDirectory("");
+        PageSet<? extends StorageMetadata> res = blobStore.list(CONTAINER_NAME, options);
+        assertTrue(res.size() == 1);
+        assertEquals(res.iterator().next().getName(), "a");
     }
 
     public void testList_NotExistingContainer() {
@@ -197,17 +222,19 @@ public class FilesystemBlobStoreTest {
 
         // creates blobs in first container
 
-        Set<String> blobNamesCreatedInContainer1 = TestUtils.createBlobsInContainer(CONTAINER_NAME, "bbb"
-                + File.separator + "ccc" + File.separator + "ddd" + File.separator + "1234.jpg",
-                TestUtils.createRandomBlobKey(), "rrr" + File.separator + "sss" + File.separator + "788.jpg", "xdc"
-                + File.separator + "wert.kpg");
+        Set<String> blobNamesCreatedInContainer1 = TestUtils.createBlobsInContainer(CONTAINER_NAME,
+              "bbb/ccc/ddd/1234.jpg",
+              TestUtils.createRandomBlobKey(),
+              "rrr/sss/788.jpg",
+              "xdc/wert.kpg");
 
         // creates blobs in second container
         blobStore.createContainerInLocation(null, CONTAINER_NAME2);
-        Set<String> blobNamesCreatedInContainer2 = TestUtils.createBlobsInContainer(CONTAINER_NAME2, "asd"
-                + File.separator + "bbb" + File.separator + "ccc" + File.separator + "ddd" + File.separator + "1234.jpg",
-                TestUtils.createRandomBlobKey(), "rrr" + File.separator + "sss" + File.separator + "788.jpg", "xdc"
-                + File.separator + "wert.kpg");
+        Set<String> blobNamesCreatedInContainer2 = TestUtils.createBlobsInContainer(CONTAINER_NAME2,
+              "asd/bbb/ccc/ddd/1234.jpg",
+              TestUtils.createRandomBlobKey(),
+              "rrr/sss/788.jpg",
+              "xdc/wert.kpg");
 
         // test blobs in first container
         checkForContainerContent(CONTAINER_NAME, blobNamesCreatedInContainer1);
@@ -221,15 +248,18 @@ public class FilesystemBlobStoreTest {
         checkForContainerContent(CONTAINER_NAME, null);
 
         // creates blobs in first container
-        Set<String> blobsExpected = TestUtils.createBlobsInContainer(CONTAINER_NAME, "bbb" + File.separator + "ccc"
-                + File.separator + "ddd" + File.separator + "1234.jpg", "4rrr.jpg", "rrr" + File.separator + "sss"
-                + File.separator + "788.jpg", "rrr" + File.separator + "wert.kpg");
+        Set<String> blobsExpected = TestUtils.createBlobsInContainer(CONTAINER_NAME,
+              "bbb/ccc/ddd/1234.jpg",
+              "4rrr.jpg",
+              "rrr/sss/788.jpg",
+              "rrr/wert.kpg");
 
         // remove not expected values
-        blobsExpected.remove("bbb" + File.separator + "ccc" + File.separator + "ddd" + File.separator + "1234.jpg");
+        blobsExpected.remove("bbb/ccc/ddd/1234.jpg");
         blobsExpected.remove("4rrr.jpg");
 
         checkForContainerContent(CONTAINER_NAME, "rrr", blobsExpected);
+        checkForContainerContent(CONTAINER_NAME, "rrr/", blobsExpected);
     }
 
     /**
@@ -247,17 +277,19 @@ public class FilesystemBlobStoreTest {
         blobStore.createContainerInLocation(null, CONTAINER_NAME2);
 
         // creates blobs in first container
-        Set<String> blobNamesCreatedInContainer1 = TestUtils.createBlobsInContainer(CONTAINER_NAME, "bbb"
-                + File.separator + "ccc" + File.separator + "ddd" + File.separator + "1234.jpg",
-                TestUtils.createRandomBlobKey(), "rrr" + File.separator + "sss" + File.separator + "788.jpg", "xdc"
-                + File.separator + "wert.kpg");
+        Set<String> blobNamesCreatedInContainer1 = TestUtils.createBlobsInContainer(CONTAINER_NAME,
+              "bbb/ccc/ddd/1234.jpg",
+              TestUtils.createRandomBlobKey(),
+              "rrr/sss/788.jpg",
+              "xdc/wert.kpg");
 
         // creates blobs in second container
         blobStore.createContainerInLocation(null, CONTAINER_NAME2);
-        Set<String> blobNamesCreatedInContainer2 = TestUtils.createBlobsInContainer(CONTAINER_NAME2, "asd"
-                + File.separator + "bbb" + File.separator + "ccc" + File.separator + "ddd" + File.separator + "1234.jpg",
-                TestUtils.createRandomBlobKey(), "rrr" + File.separator + "sss" + File.separator + "788.jpg", "xdc"
-                + File.separator + "wert.kpg");
+        Set<String> blobNamesCreatedInContainer2 = TestUtils.createBlobsInContainer(CONTAINER_NAME2,
+              "asd/bbb/ccc/ddd/1234.jpg",
+              TestUtils.createRandomBlobKey(),
+              "rrr/sss/788.jpg",
+              "xdc/wert.kpg");
 
         // test blobs in containers
         checkForContainerContent(CONTAINER_NAME, blobNamesCreatedInContainer1);
@@ -305,7 +337,7 @@ public class FilesystemBlobStoreTest {
         blobStore.removeBlob(CONTAINER_NAME, BLOB_KEY);
         result = blobStore.blobExists(CONTAINER_NAME, BLOB_KEY);
         assertFalse(result, "Blob still exists");
-        TestUtils.fileExists(TARGET_CONTAINER_NAME + File.separator + BLOB_KEY, false);
+        TestUtils.fileExists(TARGET_CONTAINER_NAME + "/" + BLOB_KEY, false);
     }
 
     public void testRemoveBlob_TwoSimpleBlobKeys() throws IOException {
@@ -398,7 +430,9 @@ public class FilesystemBlobStoreTest {
         assertTrue(result, "Blob " + BLOB_KEY2 + " doesn't exist");
 
         // remove first blob
+        Uninterruptibles.sleepUninterruptibly(5, TimeUnit.SECONDS);
         blobStore.removeBlob(CONTAINER_NAME, BLOB_KEY1);
+        Uninterruptibles.sleepUninterruptibly(5, TimeUnit.SECONDS);
         result = blobStore.blobExists(CONTAINER_NAME, BLOB_KEY1);
         assertFalse(result, "Blob still exists");
         // first file deleted, not the second
@@ -458,6 +492,72 @@ public class FilesystemBlobStoreTest {
         putBlobAndCheckIt(TestUtils.createRandomBlobKey("putBlob-", ".jpg"));
         putBlobAndCheckIt(TestUtils.createRandomBlobKey("putBlob-", ".jpg"));
     }
+
+    @Test(dataProvider = "ignoreOnMacOSX")
+    public void testPutDirectoryBlobs() {
+        blobStore.createContainerInLocation(null, CONTAINER_NAME);
+
+        String parentKey = TestUtils.createRandomBlobKey("a/b/c/directory-", "/");
+        String childKey = TestUtils.createRandomBlobKey(parentKey + "directory-", File.separator);
+        blobStore.putBlob(CONTAINER_NAME, createDirBlob(parentKey));
+        assertTrue(blobStore.blobExists(CONTAINER_NAME, parentKey));
+
+        blobStore.putBlob(CONTAINER_NAME, createDirBlob(childKey));
+        assertTrue(blobStore.blobExists(CONTAINER_NAME, childKey));
+
+        blobStore.removeBlob(CONTAINER_NAME, parentKey);
+        Uninterruptibles.sleepUninterruptibly(1, TimeUnit.SECONDS);
+        assertFalse(blobStore.blobExists(CONTAINER_NAME, parentKey));
+        assertTrue(blobStore.blobExists(CONTAINER_NAME, childKey));
+    }
+
+    @Test(dataProvider = "ignoreOnMacOSX")
+    public void testGetDirectoryBlob() throws IOException {
+        blobStore.createContainerInLocation(null, CONTAINER_NAME);
+
+        String blobKey = TestUtils.createRandomBlobKey("a/b/c/directory-", "/");
+        blobStore.putBlob(CONTAINER_NAME, createDirBlob(blobKey));
+
+        assertTrue(blobStore.blobExists(CONTAINER_NAME, blobKey));
+
+        Blob blob = blobStore.getBlob(CONTAINER_NAME, blobKey);
+        assertEquals(blob.getMetadata().getName(), blobKey, "Created blob name is different");
+
+        assertTrue(!blobStore.blobExists(CONTAINER_NAME,
+                blobKey.substring(0, blobKey.length() - 1)));
+    }
+
+    @Test(dataProvider = "ignoreOnMacOSX")
+    public void testListDirectoryBlobs() {
+        blobStore.createContainerInLocation(null, CONTAINER_NAME);
+        checkForContainerContent(CONTAINER_NAME, null);
+
+        Set<String> dirs = ImmutableSet.of(TestUtils.createRandomBlobKey("directory-", File.separator));
+        for (String d : dirs) {
+            blobStore.putBlob(CONTAINER_NAME, createDirBlob(d));
+            assertTrue(blobStore.blobExists(CONTAINER_NAME, d));
+        }
+
+        checkForContainerContent(CONTAINER_NAME, dirs);
+    }
+
+    @Test(dataProvider = "ignoreOnMacOSX")
+    public void testListDirectoryBlobsS3FS() {
+        blobStore.createContainerInLocation(null, CONTAINER_NAME);
+        checkForContainerContent(CONTAINER_NAME, null);
+
+        String d = TestUtils.createRandomBlobKey("directory-", "");
+        blobStore.putBlob(CONTAINER_NAME, createDirBlob(d + File.separator));
+        assertTrue(blobStore.blobExists(CONTAINER_NAME, d + File.separator));
+
+        ListContainerOptions options = ListContainerOptions.Builder
+                .withDetails()
+                .inDirectory("");
+        PageSet<? extends StorageMetadata> res = blobStore.list(CONTAINER_NAME, options);
+        assertTrue(res.size() == 1);
+        assertEquals(res.iterator().next().getName(), d + File.separator);
+    }
+
 
     /**
      * Test of putBlob method with a complex key, with path in the filename, eg
@@ -743,11 +843,17 @@ public class FilesystemBlobStoreTest {
      * Creates a {@link Blob} object filled with data from a file
      *
      * @param keyName
-     * @param fileContent
+     * @param filePayload
      * @return
      */
     private Blob createBlob(String keyName, File filePayload) {
         return blobStore.blobBuilder(keyName).payload(filePayload).build();
+    }
+
+    private Blob createDirBlob(String keyName) {
+        return blobStore.blobBuilder(keyName)
+                .payload(ByteSource.empty())
+                .build();
     }
 
     /**
@@ -814,4 +920,9 @@ public class FilesystemBlobStoreTest {
         TestUtils.fileExists(TARGET_CONTAINER_NAME + File.separator + blobKey, true);
     }
 
+    @DataProvider
+    public Object[][] ignoreOnMacOSX() {
+        return isMacOSX() ? NO_INVOCATIONS
+                : SINGLE_NO_ARG_INVOCATION;
+    }
 }

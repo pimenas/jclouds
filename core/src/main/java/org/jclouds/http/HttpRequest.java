@@ -32,8 +32,8 @@ import org.jclouds.io.Payload;
 import org.jclouds.javax.annotation.Nullable;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
@@ -243,7 +243,7 @@ public class HttpRequest extends HttpMessage {
       super(headers, payload);
       this.method = checkNotNull(method, "method");
       this.endpoint = checkNotNull(endpoint, "endpoint");
-      checkArgument(endpoint.getHost() != null, String.format("endpoint.getHost() is null for %s", endpoint));
+      checkArgument(endpoint.getHost() != null, "endpoint.getHost() is null for %s", endpoint);
       this.filters = ImmutableList.<HttpRequestFilter> copyOf(checkNotNull(filters, "filters"));
    }
 

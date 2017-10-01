@@ -83,8 +83,6 @@ public class VirtualSystemSettingDataHandler extends ParseSax.HandlerWithResult<
             builder.logDataRoot(URI.create(current));
          } else if (equalsOrSuffix(qName, "RecoveryFile")) {
             builder.recoveryFile(URI.create(current));
-         } else if (equalsOrSuffix(qName, "RecoveryFile")) {
-            builder.recoveryFile(URI.create(current));
          } else if (equalsOrSuffix(qName, "SuspendDataRoot")) {
             builder.suspendDataRoot(URI.create(current));
          } else if (equalsOrSuffix(qName, "SwapFileDataRoot")) {
@@ -100,7 +98,7 @@ public class VirtualSystemSettingDataHandler extends ParseSax.HandlerWithResult<
       currentText.setLength(0);
    }
 
-   public void characters(char ch[], int start, int length) {
+   public void characters(char[] ch, int start, int length) {
       currentText.append(ch, start, length);
    }
 }

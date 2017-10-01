@@ -19,14 +19,17 @@ package org.jclouds.aws.ec2.options;
 import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.asType;
 import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.enableMonitoring;
 import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.withBlockDeviceMappings;
+import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.withDedicatedHostId;
 import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.withIAMInstanceProfileArn;
 import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.withIAMInstanceProfileName;
 import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.withKernelId;
 import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.withKeyName;
+import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.withPrivateIpAdress;
 import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.withRamdisk;
 import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.withSecurityGroup;
 import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.withSecurityGroupId;
 import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.withSubnetId;
+import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.withTenancy;
 import static org.jclouds.aws.ec2.options.AWSRunInstancesOptions.Builder.withUserData;
 import static org.testng.Assert.assertEquals;
 
@@ -371,4 +374,62 @@ public class AWSRunInstancesOptionsTest {
       withBlockDeviceMappings(null);
    }
 
+   @Test
+   public void testWithPrivateIpAddressStatic() {
+      AWSRunInstancesOptions options = withPrivateIpAdress("10.0.0.1");
+      assertEquals(options.buildFormParameters().get("PrivateIpAddress"), ImmutableList.of("10.0.0.1"));
+   }
+
+   @Test(expectedExceptions = NullPointerException.class)
+   public void testWithPrivateIpAddressStaticNPE() {
+      withPrivateIpAdress(null);
+   }
+
+   @Test
+   public void testNullWithTenancy() {
+      AWSRunInstancesOptions options = new AWSRunInstancesOptions();
+      assertEquals(options.buildFormParameters().get("Placement.Tenancy"), ImmutableList.of());
+   }
+
+   @Test
+   public void testWithTenancy() {
+      AWSRunInstancesOptions options = new AWSRunInstancesOptions();
+      options.withTenancy(Tenancy.DEDICATED);
+      assertEquals(options.buildFormParameters().get("Placement.Tenancy"), ImmutableList.of("dedicated"));
+   }
+
+   @Test
+   public void testWithTenancyStatic() {
+      AWSRunInstancesOptions options = withTenancy(Tenancy.HOST);
+      assertEquals(options.buildFormParameters().get("Placement.Tenancy"), ImmutableList.of("host"));
+   }
+
+   @Test(expectedExceptions = NullPointerException.class)
+   public void testWithTenancyStaticNPE() {
+      withTenancy(null);
+   }
+
+   @Test
+   public void testNullWithDedicatedHostId() {
+      AWSRunInstancesOptions options = new AWSRunInstancesOptions();
+      assertEquals(options.buildFormParameters().get("Placement.HostId"), ImmutableList.of());
+   }
+
+   @Test
+   public void testWithDedicatedHostId() {
+      AWSRunInstancesOptions options = new AWSRunInstancesOptions();
+      options.withDedicatedHostId("hostId-1234");
+      assertEquals(options.buildFormParameters().get("Placement.HostId"), ImmutableList.of("hostId-1234"));
+   }
+
+   @Test
+   public void testWithDedicatedHostIdStatic() {
+      AWSRunInstancesOptions options = withDedicatedHostId("hostId-5678");
+      assertEquals(options.buildFormParameters().get("Placement.HostId"), ImmutableList.of("hostId-5678"));
+   }
+
+   @Test(expectedExceptions = NullPointerException.class)
+   public void testWithDedicatedHostIdStaticNPE() {
+      withDedicatedHostId(null);
+   }
 }

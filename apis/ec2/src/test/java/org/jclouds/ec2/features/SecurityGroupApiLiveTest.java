@@ -52,7 +52,7 @@ public class SecurityGroupApiLiveTest extends BaseComputeServiceContextLiveTest 
       provider = "ec2";
    }
 
-   private EC2Api ec2Api;
+   protected EC2Api ec2Api;
    protected SecurityGroupApi client;
 
    @Override
@@ -231,7 +231,7 @@ public class SecurityGroupApiLiveTest extends BaseComputeServiceContextLiveTest 
       }
    }
 
-   public final class TCPPort80AllIPs implements Predicate<IpPermission> {
+   public static final class TCPPort80AllIPs implements Predicate<IpPermission> {
       @Override
       public boolean apply(IpPermission arg0) {
          return arg0.getIpProtocol() == IpProtocol.TCP && arg0.getFromPort() == 80 && arg0.getToPort() == 80

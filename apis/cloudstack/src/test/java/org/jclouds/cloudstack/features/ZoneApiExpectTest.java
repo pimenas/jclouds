@@ -18,10 +18,9 @@ package org.jclouds.cloudstack.features;
 
 import static org.testng.Assert.assertEquals;
 
-import java.net.URI;
-
 import org.jclouds.cloudstack.CloudStackContext;
 import org.jclouds.cloudstack.domain.NetworkType;
+import org.jclouds.cloudstack.domain.Tag;
 import org.jclouds.cloudstack.domain.Zone;
 import org.jclouds.cloudstack.internal.BaseCloudStackExpectTest;
 import org.jclouds.http.HttpRequest;
@@ -45,7 +44,7 @@ public class ZoneApiExpectTest extends BaseCloudStackExpectTest<ZoneApi> {
                     .addQueryParam("command", "listZones")
                     .addQueryParam("listAll", "true")
                     .addQueryParam("apiKey", "identity")
-                    .addQueryParam("signature", "8iHCtck0qfxFTqJ8reyAObRf31I%3D")
+                    .addQueryParam("signature", "8iHCtck0qfxFTqJ8reyAObRf31I=")
                     .addHeader("Accept", "application/json")
                     .build(),
          HttpResponse.builder()
@@ -61,20 +60,33 @@ public class ZoneApiExpectTest extends BaseCloudStackExpectTest<ZoneApi> {
                .networkType(NetworkType.ADVANCED)
                .securityGroupsEnabled(false).build(),
             Zone.builder()
-               .id("2")
-               .name("Chicago")
-               .networkType(NetworkType.ADVANCED)
-               .securityGroupsEnabled(true).build()));
+                  .id("2")
+                  .name("Chicago")
+                  .networkType(NetworkType.ADVANCED)
+                  .securityGroupsEnabled(true)
+                  .tags(Tag.builder()
+                        .account("1")
+                        .domain("ROOT")
+                        .domainId("1")
+                        .key("some-tag")
+                        .resourceId("2")
+                        .resourceType(Tag.ResourceType.ZONE)
+                        .value("some-value")
+                        .build())
+                  .build()));
    }
 
    public void testListZonesWhenResponseIs404() {
       ZoneApi client = requestSendsResponse(
-         HttpRequest.builder()
-            .method("GET")
-            .endpoint(
-               URI.create("http://localhost:8080/client/api?response=json&" +
-                  "command=listZones&listAll=true&apiKey=identity&signature=8iHCtck0qfxFTqJ8reyAObRf31I%3D"))
-            .addHeader("Accept", "application/json")
+            HttpRequest.builder()
+                  .method("GET")
+                  .endpoint("http://localhost:8080/client/api")
+                  .addQueryParam("response", "json")
+                  .addQueryParam("command", "listZones")
+                  .addQueryParam("listAll", "true")
+                  .addQueryParam("apiKey", "identity")
+                  .addQueryParam("signature", "8iHCtck0qfxFTqJ8reyAObRf31I=")
+                  .addHeader("Accept", "application/json")
             .build(),
          HttpResponse.builder()
             .statusCode(404)

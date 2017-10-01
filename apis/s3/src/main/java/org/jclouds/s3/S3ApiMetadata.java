@@ -16,12 +16,14 @@
  */
 package org.jclouds.s3;
 
+import static org.jclouds.Constants.PROPERTY_IDEMPOTENT_METHODS;
 import static org.jclouds.Constants.PROPERTY_RELAX_HOSTNAME;
 import static org.jclouds.aws.reference.AWSConstants.PROPERTY_AUTH_TAG;
 import static org.jclouds.aws.reference.AWSConstants.PROPERTY_HEADER_TAG;
 import static org.jclouds.blobstore.reference.BlobStoreConstants.PROPERTY_BLOBSTORE_DIRECTORY_SUFFIX;
 import static org.jclouds.blobstore.reference.BlobStoreConstants.PROPERTY_USER_METADATA_PREFIX;
 import static org.jclouds.reflect.Reflection2.typeToken;
+import static org.jclouds.s3.reference.S3Constants.PROPERTY_JCLOUDS_S3_CHUNKED_SIZE;
 import static org.jclouds.s3.reference.S3Constants.PROPERTY_S3_SERVICE_PATH;
 import static org.jclouds.s3.reference.S3Constants.PROPERTY_S3_VIRTUAL_HOST_BUCKETS;
 
@@ -35,6 +37,7 @@ import org.jclouds.s3.blobstore.config.S3BlobStoreContextModule;
 import org.jclouds.s3.config.S3HttpApiModule;
 import org.jclouds.s3.reference.S3Headers;
 
+import com.google.auto.service.AutoService;
 import com.google.common.collect.ImmutableSet;
 import com.google.inject.Module;
 
@@ -52,6 +55,7 @@ import com.google.inject.Module;
  * not present in the base api. For example, you could make a subtype for
  * context, that exposes admin operations.
  */
+@AutoService(ApiMetadata.class)
 public class S3ApiMetadata extends BaseHttpApiMetadata {
 
    @Override
@@ -76,6 +80,10 @@ public class S3ApiMetadata extends BaseHttpApiMetadata {
       properties.setProperty(PROPERTY_RELAX_HOSTNAME, "true");
       properties.setProperty(PROPERTY_BLOBSTORE_DIRECTORY_SUFFIX, "/");
       properties.setProperty(PROPERTY_USER_METADATA_PREFIX, String.format("x-${%s}-meta-", PROPERTY_HEADER_TAG));
+      properties.setProperty(PROPERTY_IDEMPOTENT_METHODS, "DELETE,GET,HEAD,OPTIONS,POST,PUT");
+
+      // Chunk size must be at least 8 KB. We recommend a chunk size of a least 64 KB for better performance.
+      properties.setProperty(PROPERTY_JCLOUDS_S3_CHUNKED_SIZE, String.valueOf(64 * 1024));
       return properties;
    }
    
@@ -92,7 +100,7 @@ public class S3ApiMetadata extends BaseHttpApiMetadata {
          .name("Amazon Simple Storage Service (S3) API")
          .identityName("Access Key ID")
          .credentialName("Secret Access Key")
-         .defaultEndpoint("https://s3.amazonaws.com")
+         .defaultEndpoint("http://localhost")
          .documentation(URI.create("http://docs.amazonwebservices.com/AmazonS3/latest/API"))
          .version("2006-03-01")
          .defaultProperties(S3ApiMetadata.defaultProperties())

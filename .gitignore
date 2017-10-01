@@ -17,3 +17,9 @@ TAGS
 atlassian-ide-plugin.xml
 .DS_Store
 .java-version
+.factorypath
+.apt_generated
+.checkstyle
+nb-configuration.xml
+nbactions.xml
+/.nb-gradle/

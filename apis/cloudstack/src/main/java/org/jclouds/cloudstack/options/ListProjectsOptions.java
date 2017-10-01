@@ -16,6 +16,8 @@
  */
 package org.jclouds.cloudstack.options;
 
+import java.util.Map;
+
 import com.google.common.collect.ImmutableSet;
 
 /**
@@ -85,6 +87,31 @@ public class ListProjectsOptions extends AccountInDomainOptions {
       return this;
    }
 
+   /**
+    * @param tags
+    *           Key/value pairs for tags that need to be matched.
+    */
+   public ListProjectsOptions tags(Map<String, String> tags) {
+      int count = 0;
+      for (Map.Entry<String, String> entry : tags.entrySet()) {
+         this.queryParameters.replaceValues(String.format("tags[%d].key", count), ImmutableSet.of(entry.getKey()));
+         this.queryParameters.replaceValues(String.format("tags[%d].value", count),
+               ImmutableSet.of(entry.getValue()));
+         count += 1;
+      }
+      return this;
+   }
+   
+   public ListProjectsOptions page(Long page) {
+      this.queryParameters.replaceValues("page", ImmutableSet.of(page + ""));
+      return this;
+   }
+   
+   public ListProjectsOptions pageSize(Long pageSize) {
+      this.queryParameters.replaceValues("pagesize", ImmutableSet.of(pageSize + ""));
+      return this;
+   }
+
    public static class Builder {
 
       /**
@@ -149,6 +176,30 @@ public class ListProjectsOptions extends AccountInDomainOptions {
       public static ListProjectsOptions recursive(boolean recursive) {
          ListProjectsOptions options = new ListProjectsOptions();
          return options.recursive(recursive);
+      }
+
+      /**
+       * @see org.jclouds.cloudstack.options.ListProjectsOptions#tags
+       */
+      public static ListProjectsOptions tags(Map<String, String> tags) {
+         ListProjectsOptions options = new ListProjectsOptions();
+         return options.tags(tags);
+      }
+      
+      /**
+       * @see org.jclouds.cloudstack.options.ListProjectsOptions#page
+       */
+      public static ListProjectsOptions page(Long page) {
+         ListProjectsOptions options = new ListProjectsOptions();
+         return options.page(page);
+      }
+      
+      /**
+       * @see org.jclouds.cloudstack.options.ListProjectsOptions#pageSize
+       */
+      public static ListProjectsOptions pageSize(Long pageSize) {
+         ListProjectsOptions options = new ListProjectsOptions();
+         return options.pageSize(pageSize);
       }
    }
 

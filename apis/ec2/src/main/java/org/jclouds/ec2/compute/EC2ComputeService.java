@@ -22,7 +22,6 @@ import static com.google.common.collect.Iterables.concat;
 import static com.google.common.collect.Iterables.transform;
 import static com.google.common.collect.Lists.newArrayList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.jclouds.compute.config.ComputeServiceProperties.RESOURCENAME_DELIMITER;
 import static org.jclouds.compute.config.ComputeServiceProperties.TIMEOUT_NODE_RUNNING;
 import static org.jclouds.compute.config.ComputeServiceProperties.TIMEOUT_NODE_SUSPENDED;
@@ -33,9 +32,6 @@ import static org.jclouds.ec2.reference.EC2Constants.PROPERTY_EC2_GENERATE_INSTA
 import static org.jclouds.ec2.util.Tags.resourceToTagsAsMap;
 import static org.jclouds.util.Predicates2.retry;
 
-import javax.inject.Named;
-import javax.inject.Provider;
-import javax.inject.Singleton;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -43,21 +39,10 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
-import com.google.common.base.Supplier;
-import com.google.common.cache.LoadingCache;
-import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
-import com.google.common.collect.ImmutableMultimap.Builder;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Multimap;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.inject.Inject;
+import javax.inject.Named;
+import javax.inject.Provider;
+import javax.inject.Singleton;
+
 import org.jclouds.Constants;
 import org.jclouds.aws.util.AWSUtils;
 import org.jclouds.collect.Memoized;
@@ -96,10 +81,26 @@ import org.jclouds.ec2.compute.options.EC2TemplateOptions;
 import org.jclouds.ec2.domain.InstanceState;
 import org.jclouds.ec2.domain.KeyPair;
 import org.jclouds.ec2.domain.RunningInstance;
+import org.jclouds.ec2.domain.SecurityGroup;
 import org.jclouds.ec2.domain.Tag;
 import org.jclouds.ec2.util.TagFilterBuilder;
 import org.jclouds.scriptbuilder.functions.InitAdminAccess;
-import org.jclouds.util.Strings2;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Function;
+import com.google.common.base.Optional;
+import com.google.common.base.Predicate;
+import com.google.common.base.Supplier;
+import com.google.common.cache.LoadingCache;
+import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableMultimap.Builder;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
+import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.inject.Inject;
 
 @Singleton
 public class EC2ComputeService extends BaseComputeService {
@@ -108,6 +109,7 @@ public class EC2ComputeService extends BaseComputeService {
    private final LoadingCache<RegionAndName, String> securityGroupMap;
    private final Factory namingConvention;
    private final boolean generateInstanceNames;
+   private final Timeouts timeouts;
 
    @Inject
    protected EC2ComputeService(ComputeServiceContext context, Map<String, Credentials> credentialStore,
@@ -140,6 +142,7 @@ public class EC2ComputeService extends BaseComputeService {
       this.securityGroupMap = securityGroupMap;
       this.namingConvention = namingConvention;
       this.generateInstanceNames = generateInstanceNames;
+      this.timeouts = timeouts;
    }
 
    @Override
@@ -220,11 +223,17 @@ public class EC2ComputeService extends BaseComputeService {
       checkNotNull(emptyToNull(group), "group must be defined");
       String groupName = namingConvention.create().sharedNameForGroup(group);
 
-      if (!client.getSecurityGroupApi().get().describeSecurityGroupsInRegion(region, groupName).isEmpty()) {
+      Multimap<String, String> securityGroupFilterByName = ImmutableMultimap.of("group-name", groupName);
+      Set<SecurityGroup> securityGroupsToDelete = client.getSecurityGroupApi().get()
+              .describeSecurityGroupsInRegionWithFilter(region, securityGroupFilterByName);
+      if (securityGroupsToDelete.size() > 1) {
+         logger.warn("When trying to delete security group %s found more than one matching the name. Will delete all - %s.",
+                 group, securityGroupsToDelete);
+      }
+      for (SecurityGroup securityGroup : securityGroupsToDelete) {
          logger.debug(">> deleting securityGroup(%s)", groupName);
-         client.getSecurityGroupApi().get().deleteSecurityGroupInRegion(region, groupName);
-         // TODO: test this clear happens
-         securityGroupMap.invalidate(new RegionNameAndIngressRules(region, groupName, null, false));
+         client.getSecurityGroupApi().get().deleteSecurityGroupInRegionById(region, securityGroup.getId());
+         securityGroupMap.invalidate(new RegionNameAndIngressRules(region, groupName, null, false, null));
          logger.debug("<< deleted securityGroup(%s)", groupName);
       }
    }
@@ -233,8 +242,7 @@ public class EC2ComputeService extends BaseComputeService {
    void deleteKeyPair(String region, String group) {
       for (KeyPair keyPair : client.getKeyPairApi().get().describeKeyPairsInRegionWithFilter(region,
               ImmutableMultimap.<String, String>builder()
-                      .put("key-name", Strings2.urlEncode(
-                              String.format("jclouds#%s#%s*", group, region).replace('#', delimiter)))
+                      .put("key-name", String.format("jclouds#%s#*", group).replace('#', delimiter))
                       .build())) {
          String keyName = keyPair.getKeyName();
          Predicate<String> keyNameMatcher = namingConvention.create().containsGroup(group);
@@ -301,6 +309,7 @@ public class EC2ComputeService extends BaseComputeService {
       // given security group, if called very soon after the VM's state reports terminated. Empirically, it seems that
       // waiting a small time (e.g. enabling logging or debugging!) then the tests pass. We therefore retry.
       // TODO: this could be moved to a config module, also the narrative above made more concise
+      long timeout = timeouts.cleanupIncidentalResources;
       retry(new Predicate<RegionAndName>() {
          public boolean apply(RegionAndName input) {
             try {
@@ -314,7 +323,7 @@ public class EC2ComputeService extends BaseComputeService {
                return false;
             }
          }
-      }, SECONDS.toMillis(3), 50, 1000, MILLISECONDS).apply(new RegionAndName(region, group));
+      }, timeout, 50, 1000, MILLISECONDS).apply(new RegionAndName(region, group));
    }
 
    /**

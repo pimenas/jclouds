@@ -57,14 +57,11 @@ public class JettyStatements {
    
    public static Statement start() {
       return new StatementList(
-            literal("cd " + JETTY_HOME),
-            literal("nohup java -jar start.jar jetty.port=" + port + " > start.out 2> start.err < /dev/null &"),
+            literal(String.format("JETTY_PORT=%d nohup %s/bin/jetty.sh start > start.log 2>&1 < /dev/null &", port, JETTY_HOME)),
             literal("test $? && sleep 1")); // in case it is slow starting the proc
    }
    
    public static Statement stop() {
-      return new StatementList(
-            literal("cd " + JETTY_HOME),
-            literal("./bin/jetty.sh stop"));
+      return literal(JETTY_HOME + "/bin/jetty.sh stop");
    }
 }

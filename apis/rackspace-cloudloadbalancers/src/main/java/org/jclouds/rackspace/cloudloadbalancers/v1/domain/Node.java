@@ -22,8 +22,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.jclouds.rackspace.cloudloadbalancers.v1.domain.internal.BaseNode;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 
 /**
  * The nodes defined by the load balancer are responsible for servicing the requests received

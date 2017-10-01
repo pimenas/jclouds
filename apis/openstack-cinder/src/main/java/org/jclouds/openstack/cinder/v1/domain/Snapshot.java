@@ -23,27 +23,27 @@ import java.util.Date;
 
 import javax.inject.Named;
 
+import com.google.common.base.Optional;
 import org.jclouds.javax.annotation.Nullable;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 
 /**
  * An Openstack Cinder Volume Snapshot.
  */
 public class Snapshot {
 
-   public static Builder<?> builder() { 
-      return new ConcreteBuilder();
+   public static Builder builder() {
+      return new Builder();
    }
    
-   public Builder<?> toBuilder() { 
-      return new ConcreteBuilder().fromSnapshot(this);
+   public Builder toBuilder() {
+      return new Builder().fromSnapshot(this);
    }
 
-   public abstract static class Builder<T extends Builder<T>>  {
-      protected abstract T self();
+   public static class Builder {
 
       protected String id;
       protected String volumeId;
@@ -52,11 +52,12 @@ public class Snapshot {
       protected Date created;
       protected String name;
       protected String description;
+      protected SnapshotExtendedAttributes extendedAttributes;
    
       /** 
        * @see Snapshot#getId()
        */
-      public T id(String id) {
+      public Builder id(String id) {
          this.id = id;
          return self();
       }
@@ -64,7 +65,7 @@ public class Snapshot {
       /** 
        * @see Snapshot#getVolumeId()
        */
-      public T volumeId(String volumeId) {
+      public Builder volumeId(String volumeId) {
          this.volumeId = volumeId;
          return self();
       }
@@ -72,7 +73,7 @@ public class Snapshot {
       /** 
        * @see Snapshot#getStatus()
        */
-      public T status(Volume.Status status) {
+      public Builder status(Volume.Status status) {
          this.status = status;
          return self();
       }
@@ -80,7 +81,7 @@ public class Snapshot {
       /** 
        * @see Snapshot#getSize()
        */
-      public T size(int size) {
+      public Builder size(int size) {
          this.size = size;
          return self();
       }
@@ -88,7 +89,7 @@ public class Snapshot {
       /** 
        * @see Snapshot#getCreated()
        */
-      public T created(Date created) {
+      public Builder created(Date created) {
          this.created = created;
          return self();
       }
@@ -96,7 +97,7 @@ public class Snapshot {
       /** 
        * @see Snapshot#getName()
        */
-      public T name(String name) {
+      public Builder name(String name) {
          this.name = name;
          return self();
       }
@@ -104,16 +105,24 @@ public class Snapshot {
       /** 
        * @see Snapshot#getDescription()
        */
-      public T description(String description) {
+      public Builder description(String description) {
          this.description = description;
          return self();
       }
 
+      /**
+       * @see Snapshot#getExtendedAttributes()
+       */
+      public Builder extendedAttributes(SnapshotExtendedAttributes extendedAttributes) {
+         this.extendedAttributes = extendedAttributes;
+         return self();
+      }
+
       public Snapshot build() {
-         return new Snapshot(id, volumeId, status, size, created, name, description);
+         return new Snapshot(id, volumeId, status, size, created, name, description, extendedAttributes);
       }
       
-      public T fromSnapshot(Snapshot in) {
+      public Builder fromSnapshot(Snapshot in) {
          return this
                   .id(in.getId())
                   .volumeId(in.getVolumeId())
@@ -121,16 +130,15 @@ public class Snapshot {
                   .size(in.getSize())
                   .created(in.getCreated())
                   .name(in.getName())
-                  .description(in.getDescription());
+                  .description(in.getDescription())
+                  .extendedAttributes(in.getExtendedAttributes().orNull());
       }
-   }
 
-   private static class ConcreteBuilder extends Builder<ConcreteBuilder> {
-      @Override
-      protected ConcreteBuilder self() {
+      protected Builder self() {
          return this;
       }
    }
+
 
    private final String id;
    @Named("volume_id")
@@ -143,11 +151,10 @@ public class Snapshot {
    private final String name;
    @Named("display_description")
    private final String description;
+   private final Optional<SnapshotExtendedAttributes> extendedAttributes;
 
-   @ConstructorProperties({
-      "id", "volume_id", "status", "size", "created_at", "display_name", "display_description"
-   })
-   protected Snapshot(String id, String volumeId, Volume.Status status, int size, @Nullable Date created, @Nullable String name, @Nullable String description) {
+   @ConstructorProperties({"id", "volume_id", "status", "size", "created_at", "display_name", "display_description", "extendedAttributes"})
+   protected Snapshot(String id, String volumeId, Volume.Status status, int size, @Nullable Date created, @Nullable String name, @Nullable String description, @Nullable SnapshotExtendedAttributes extendedAttributes) {
       this.id = checkNotNull(id, "id");
       this.volumeId = checkNotNull(volumeId, "volumeId");
       this.status = checkNotNull(status, "status");
@@ -155,6 +162,7 @@ public class Snapshot {
       this.created = created;
       this.name = name;
       this.description = description;
+      this.extendedAttributes = Optional.fromNullable(extendedAttributes);
    }
 
    /**
@@ -209,9 +217,18 @@ public class Snapshot {
       return this.description;
    }
 
+   /**
+    * @return Extended attributes for this snapshot. Only present when the
+    *         {@code os-extended-snapshot-attributes} extension is installed
+    */
+   @Nullable
+   public Optional<SnapshotExtendedAttributes> getExtendedAttributes() {
+      return this.extendedAttributes;
+   }
+
    @Override
    public int hashCode() {
-      return Objects.hashCode(id, volumeId, status, size, created, name, description);
+      return Objects.hashCode(id, volumeId, status, size, created, name, description, extendedAttributes);
    }
 
    @Override
@@ -225,12 +242,13 @@ public class Snapshot {
                && Objects.equal(this.size, that.size)
                && Objects.equal(this.created, that.created)
                && Objects.equal(this.name, that.name)
-               && Objects.equal(this.description, that.description);
+               && Objects.equal(this.description, that.description)
+               && Objects.equal(this.extendedAttributes, that.extendedAttributes);
    }
    
    protected ToStringHelper string() {
       return MoreObjects.toStringHelper(this)
-            .add("id", id).add("volumeId", volumeId).add("status", status).add("size", size).add("created", created).add("name", name).add("description", description);
+            .add("id", id).add("volumeId", volumeId).add("status", status).add("size", size).add("created", created).add("name", name).add("description", description).add("extendedAttributes", extendedAttributes);
    }
    
    @Override

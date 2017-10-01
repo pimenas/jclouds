@@ -24,7 +24,7 @@ import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.core.MediaType;
 
-import org.jclouds.Fallbacks;
+import org.jclouds.Fallbacks.EmptySetOnNotFoundOr404;
 import org.jclouds.http.filters.BasicAuthentication;
 import org.jclouds.rest.annotations.Fallback;
 import org.jclouds.rest.annotations.QueryParams;
@@ -45,7 +45,7 @@ public interface AccountApi {
 
    String GUEST_MASK = "children.blockDevices.diskImage.softwareReferences.softwareDescription";
    String LIST_GUEST_MASK = "powerState;operatingSystem.passwords;datacenter;billingItem;blockDevices" +
-           ".diskImage;tagReferences";
+           ".diskImage;tagReferences.tag.name";
 
    /**
     * @return an account's associated virtual guest objects.
@@ -54,7 +54,7 @@ public interface AccountApi {
    @GET
    @Path("/SoftLayer_Account/VirtualGuests")
    @QueryParams(keys = "objectMask", values = LIST_GUEST_MASK)
-   @Fallback(Fallbacks.EmptySetOnNotFoundOr404.class)
+   @Fallback(EmptySetOnNotFoundOr404.class)
    Set<VirtualGuest> listVirtualGuests();
 
    /**
@@ -65,7 +65,7 @@ public interface AccountApi {
    @GET
    @Path("/SoftLayer_Account/getBlockDeviceTemplateGroups")
    @QueryParams(keys = "objectMask", values = GUEST_MASK)
-   @Fallback(Fallbacks.EmptySetOnNotFoundOr404.class)
+   @Fallback(EmptySetOnNotFoundOr404.class)
    Set<VirtualGuestBlockDeviceTemplateGroup> getBlockDeviceTemplateGroups();
 
 }

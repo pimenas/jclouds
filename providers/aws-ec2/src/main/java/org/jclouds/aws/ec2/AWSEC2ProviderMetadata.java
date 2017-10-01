@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 package org.jclouds.aws.ec2;
+
 import static org.jclouds.aws.ec2.reference.AWSEC2Constants.PROPERTY_EC2_AMI_QUERY;
 import static org.jclouds.aws.ec2.reference.AWSEC2Constants.PROPERTY_EC2_CC_AMI_QUERY;
 import static org.jclouds.aws.ec2.reference.AWSEC2Constants.PROPERTY_EC2_CC_REGIONS;
@@ -28,10 +29,13 @@ import org.jclouds.aws.domain.Region;
 import org.jclouds.providers.ProviderMetadata;
 import org.jclouds.providers.internal.BaseProviderMetadata;
 
+import com.google.auto.service.AutoService;
+
 /**
  * Implementation of {@ link org.jclouds.types.ProviderMetadata} for Amazon's
  * Elastic Compute Cloud (EC2) provider.
  */
+@AutoService(ProviderMetadata.class)
 public class AWSEC2ProviderMetadata extends BaseProviderMetadata {
 
    public static Builder builder() {
@@ -82,7 +86,7 @@ public class AWSEC2ProviderMetadata extends BaseProviderMetadata {
          .console(URI.create("https://console.aws.amazon.com/ec2/home"))
          .defaultProperties(AWSEC2ProviderMetadata.defaultProperties())
          .linkedServices("aws-ec2", "aws-elb", "aws-cloudwatch", "aws-s3", "aws-simpledb")
-         .iso3166Codes("US-VA", "US-CA", "US-OR", "BR-SP", "IE", "SG", "AU-NSW", "JP-13");
+         .iso3166Codes("US-VA", "US-OH", "US-CA", "US-OR", "CA", "BR-SP", "IE", "GB-LND", "DE-HE", "SG", "AU-NSW", "IN-MH", "JP-13", "KR-11", "CN-11");
       }
 
       @Override

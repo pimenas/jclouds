@@ -53,9 +53,9 @@ public class AccountApiMockTest extends BaseOpenStackMockTest<SwiftApi> {
       try {
          SwiftApi api = api(server.getUrl("/").toString(), "openstack-swift");
          Account account = api.getAccountApi("DFW").get();
-         assertEquals(account.getContainerCount(), 3l);
-         assertEquals(account.getObjectCount(), 42l);
-         assertEquals(account.getBytesUsed(), 323479l);
+         assertEquals(account.getContainerCount(), 3L);
+         assertEquals(account.getObjectCount(), 42L);
+         assertEquals(account.getBytesUsed(), 323479L);
          for (Entry<String, String> entry : metadata.entrySet()) {
             assertEquals(account.getMetadata().get(entry.getKey().toLowerCase()), entry.getValue());
          }
@@ -77,7 +77,7 @@ public class AccountApiMockTest extends BaseOpenStackMockTest<SwiftApi> {
 
       try {
          SwiftApi api = api(server.getUrl("/").toString(), "openstack-swift");
-         assertTrue(api.getAccountApi("DFW").updateMetadata(metadata));
+         api.getAccountApi("DFW").updateMetadata(metadata);
 
          assertEquals(server.getRequestCount(), 2);
          assertAuthentication(server);
@@ -99,7 +99,7 @@ public class AccountApiMockTest extends BaseOpenStackMockTest<SwiftApi> {
 
       try {
          SwiftApi api = api(server.getUrl("/").toString(), "openstack-swift");
-         assertTrue(api.getAccountApi("DFW").updateTemporaryUrlKey("foobar"));
+         api.getAccountApi("DFW").updateTemporaryUrlKey("foobar");
 
          assertEquals(server.getRequestCount(), 2);
          assertAuthentication(server);

@@ -16,8 +16,8 @@
  */
 package org.jclouds.openstack.swift.v1.domain;
 
-import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Objects.equal;
+import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.net.URI;
@@ -27,8 +27,8 @@ import java.util.Map.Entry;
 
 import org.jclouds.io.Payload;
 
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Multimap;
@@ -53,7 +53,7 @@ public class SwiftObject implements Comparable<SwiftObject> {
          Multimap<String, String> headers, Map<String, String> metadata, Payload payload) {
       this.name = checkNotNull(name, "name");
       this.uri = checkNotNull(uri, "uri of %s", uri);
-      this.etag = checkNotNull(etag, "etag of %s", name).replace("\"", "");
+      this.etag = etag != null ? etag.replace("\"", "") : null;
       this.lastModified = checkNotNull(lastModified, "lastModified of %s", name);
       this.headers = headers == null ? ImmutableMultimap.<String, String> of() : checkNotNull(headers, "headers of %s", name);
       this.metadata = metadata == null ? ImmutableMap.<String, String> of() : metadata;
@@ -76,7 +76,7 @@ public class SwiftObject implements Comparable<SwiftObject> {
 
    /**
     * @return The ETag of the content of this object.
-    * @deprecated Please use {@link #getETag()} as this method will be removed in jclouds 1.8.
+    * @deprecated Please use {@link #getETag()} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    public String getEtag() {

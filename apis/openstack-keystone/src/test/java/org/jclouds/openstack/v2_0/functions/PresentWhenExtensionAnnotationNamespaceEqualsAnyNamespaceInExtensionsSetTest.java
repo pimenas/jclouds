@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Set;
 
 import org.jclouds.date.internal.SimpleDateFormatDateService;
+import org.jclouds.openstack.keystone.v2_0.config.NamespaceAliases;
 import org.jclouds.openstack.v2_0.ServiceType;
 import org.jclouds.openstack.v2_0.domain.Extension;
 import org.jclouds.reflect.Invocation;
@@ -44,6 +45,7 @@ import com.google.common.collect.Multimap;
 import com.google.inject.AbstractModule;
 import com.google.inject.Guice;
 import com.google.inject.Provides;
+import com.google.inject.multibindings.MapBinder;
 
 @Test(groups = "unit", testName = "PresentWhenExtensionAnnotationNamespaceEqualsAnyNamespaceInExtensionsSetTest")
 public class PresentWhenExtensionAnnotationNamespaceEqualsAnyNamespaceInExtensionsSetTest {
@@ -63,7 +65,7 @@ public class PresentWhenExtensionAnnotationNamespaceEqualsAnyNamespaceInExtensio
             new SimpleDateFormatDateService().iso8601SecondsDateParse("2011-06-16T00:00:00+00:00")).description(
             "Floating IPs support").build();
 
-   @org.jclouds.openstack.v2_0.services.Extension(of = ServiceType.COMPUTE, namespace = "http://docs.openstack.org/ext/floating_ips/api/v1.1")
+   @org.jclouds.openstack.v2_0.services.Extension(of = ServiceType.COMPUTE, name = "Floating_ips", alias = "os-floating-ips", namespace = "http://docs.openstack.org/ext/floating_ips/api/v1.1")
    interface FloatingIPApi {
 
    }
@@ -106,7 +108,7 @@ public class PresentWhenExtensionAnnotationNamespaceEqualsAnyNamespaceInExtensio
    /**
     * It is possible that the /extensions call returned the correct extension, but that the
     * namespaces were different, for whatever reason. One way to address this is to have a multimap
-    * of the authoritative namespace to alternate onces, which could be wired up with guice
+    * of the authoritative namespace to alternate ones, which could be wired up with guice
     *
     */
    public void testPresentWhenAliasForExtensionMapsToNamespace() throws SecurityException, NoSuchMethodException {
@@ -123,21 +125,75 @@ public class PresentWhenExtensionAnnotationNamespaceEqualsAnyNamespaceInExtensio
 
    }
 
-   private PresentWhenExtensionAnnotationNamespaceEqualsAnyNamespaceInExtensionsSet whenExtensionsInRegionInclude(
+   /**
+    * In devstack and going forward, namespaces are being deprecated. When namespace is missing (or replaced with a
+    * "fake" /fake namespace), allow matching by name and alias.
+    *
+    */
+   public void testPresentWhenNameSpaceIsFakeAndMatchByNameOrAlias() throws SecurityException, NoSuchMethodException {
+      // Revert to alias
+      Extension floatingIpsWithFakeNamespace = floatingIps.toBuilder()
+            .namespace(URI.create("http://docs.openstack.org/ext/fake"))
+            .build();
+
+      // Revert to name
+      Extension floatingIpsWithFakeNamespaceAndAlias = floatingIps.toBuilder()
+            .namespace(URI.create("http://docs.openstack.org/ext/fake"))
+            .alias("fake")
+            .build();
+
+      Multimap<URI, URI> aliases = ImmutableMultimap.of();
+
+      assertEquals(whenExtensionsAndAliasesInRegionInclude("region", ImmutableSet.of(floatingIpsWithFakeNamespace), aliases).apply(
+            getFloatingIPExtension(ImmutableList.<Object> of("region"))), Optional.of("foo"));
+
+      assertEquals(whenExtensionsAndAliasesInRegionInclude("region", ImmutableSet.of(floatingIpsWithFakeNamespaceAndAlias), aliases).apply(
+            getFloatingIPExtension(ImmutableList.<Object> of("region"))), Optional.of("foo"));
+   }
+   
+   public void testPresentWhenNameSpaceIsMissingAndMatchByNameOrAlias() throws SecurityException, NoSuchMethodException {
+      // Revert to alias
+      Extension floatingIpsWithMissingNamespace = floatingIps.toBuilder()
+            .namespace(null)
+            .build();
+
+      // Revert to name
+      Extension floatingIpsWithMissingNamespaceAndAlias = floatingIps.toBuilder()
+            .namespace(null)
+            .alias("fake")
+            .build();
+
+      Multimap<URI, URI> aliases = ImmutableMultimap.of();
+
+      assertEquals(whenExtensionsAndAliasesInRegionInclude("region", ImmutableSet.of(floatingIpsWithMissingNamespace), aliases).apply(
+            getFloatingIPExtension(ImmutableList.<Object> of("region"))), Optional.of("foo"));
+
+      assertEquals(whenExtensionsAndAliasesInRegionInclude("region", ImmutableSet.of(floatingIpsWithMissingNamespaceAndAlias), aliases).apply(
+            getFloatingIPExtension(ImmutableList.<Object> of("region"))), Optional.of("foo"));
+   }
+
+   private PresentWhenExtensionAnnotationMatchesExtensionSet whenExtensionsInRegionInclude(
             String region, Extension... extensions) {
       return whenExtensionsAndAliasesInRegionInclude(region, ImmutableSet.copyOf(extensions), ImmutableMultimap.<URI, URI> of());
    }
 
-   private PresentWhenExtensionAnnotationNamespaceEqualsAnyNamespaceInExtensionsSet whenExtensionsAndAliasesInRegionInclude(
+   private PresentWhenExtensionAnnotationMatchesExtensionSet whenExtensionsAndAliasesInRegionInclude(
             String region, final Set<Extension> extensions, final Multimap<URI, URI> aliases) {
       final LoadingCache<String, Set<? extends Extension>> extensionsForRegion = CacheBuilder.newBuilder().build(
                CacheLoader.from(Functions.forMap(ImmutableMap.<String, Set<? extends Extension>>of(region, extensions, "differentregion",
                         ImmutableSet.<Extension> of()))));
 
-      PresentWhenExtensionAnnotationNamespaceEqualsAnyNamespaceInExtensionsSet fn = Guice.createInjector(
+      PresentWhenExtensionAnnotationMatchesExtensionSet fn = Guice.createInjector(
                new AbstractModule() {
                   @Override
                   protected void configure() {
+                     MapBinder<URI, URI> aliasBindings = MapBinder.newMapBinder(binder(),
+                           URI.class, URI.class, NamespaceAliases.class).permitDuplicates();
+                     for (URI key : aliases.keySet()) {
+                        for (URI value : aliases.get(key)) {
+                           aliasBindings.addBinding(key).toInstance(value);
+                        }
+                     }
                   }
 
                   @Provides
@@ -145,11 +201,7 @@ public class PresentWhenExtensionAnnotationNamespaceEqualsAnyNamespaceInExtensio
                      return extensionsForRegion;
                   }
 
-                  @Provides
-                  Multimap<URI, URI> getAliases() {
-                     return aliases;
-                  }
-               }).getInstance(PresentWhenExtensionAnnotationNamespaceEqualsAnyNamespaceInExtensionsSet.class);
+               }).getInstance(PresentWhenExtensionAnnotationMatchesExtensionSet.class);
 
       return fn;
    }

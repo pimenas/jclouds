@@ -48,7 +48,8 @@ import com.google.common.collect.FluentIterable;
  *
  */
 @Beta
-@Extension(of = ServiceType.IDENTITY, namespace = ExtensionNamespaces.OS_KSADM)
+@Extension(of = ServiceType.IDENTITY, namespace = ExtensionNamespaces.OS_KSADM,
+      name = ExtensionNames.OS_KSADM, alias = ExtensionAliases.OS_KSADM)
 @RequestFilters(AuthenticateRequest.class)
 @Path("OS-KSADM/roles")
 public interface RoleAdminApi {
@@ -75,7 +76,6 @@ public interface RoleAdminApi {
    @SelectJson("role")
    @Produces(MediaType.APPLICATION_JSON)
    @WrapWith("role")
-   @Fallback(NullOnNotFoundOr404.class)
    @Nullable
    Role create(@PayloadParam("name") String name);
 

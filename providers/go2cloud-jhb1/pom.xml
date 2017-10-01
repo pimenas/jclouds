@@ -22,7 +22,7 @@
   <parent>
     <groupId>org.apache.jclouds</groupId>
     <artifactId>jclouds-project</artifactId>
-    <version>2.0.0-SNAPSHOT</version>
+    <version>2.1.0-SNAPSHOT</version>
     <relativePath>../../project/pom.xml</relativePath>
   </parent>
   <groupId>org.apache.jclouds.provider</groupId>
@@ -32,7 +32,7 @@
   <packaging>bundle</packaging>
 
   <properties>
-    <test.go2cloud-jhb1.endpoint>http://api.jhb1.go2cloud.co.za</test.go2cloud-jhb1.endpoint>
+    <test.go2cloud-jhb1.endpoint>http://api-jhb1.go2cloud.co.za</test.go2cloud-jhb1.endpoint>
     <test.go2cloud-jhb1.api-version>2.0</test.go2cloud-jhb1.api-version>
     <test.go2cloud-jhb1.build-version />
     <test.go2cloud-jhb1.identity>FIXME_IDENTITY</test.go2cloud-jhb1.identity>
@@ -86,6 +86,11 @@
       <artifactId>jclouds-sshj</artifactId>
       <version>${project.version}</version>
       <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.auto.service</groupId>
+      <artifactId>auto-service</artifactId>
+      <optional>true</optional>
     </dependency>
   </dependencies>
 

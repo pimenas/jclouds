@@ -19,6 +19,9 @@ package org.jclouds.json.internal;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Predicates.in;
+import static com.google.common.collect.Iterables.filter;
+import static com.google.common.collect.Iterables.get;
+import static com.google.common.collect.Iterables.size;
 import static com.google.common.collect.Iterables.transform;
 import static com.google.common.collect.Iterables.tryFind;
 import static org.jclouds.reflect.Reflection2.constructors;
@@ -26,11 +29,15 @@ import static org.jclouds.reflect.Reflection2.constructors;
 import java.beans.ConstructorProperties;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 
 import javax.inject.Named;
+
+import org.jclouds.json.SerializedNames;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -40,6 +47,7 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.Maps;
 import com.google.common.reflect.Invokable;
+import com.google.common.reflect.Parameter;
 import com.google.common.reflect.TypeToken;
 import com.google.gson.FieldNamingStrategy;
 import com.google.gson.annotations.SerializedName;
@@ -168,6 +176,44 @@ public class NamingStrategies {
 
       @Override
       public String translateName(Field f) {
+         // Determining if AutoValue is tough, since annotations are SOURCE retention.
+         if (Modifier.isAbstract(f.getDeclaringClass().getSuperclass().getModifiers())) { // AutoValue means abstract.
+            for (Invokable<?, ?> target : constructors(TypeToken.of(f.getDeclaringClass().getSuperclass()))) {
+               SerializedNames names = target.getAnnotation(SerializedNames.class);
+               if (names != null && target.isStatic()) { // == factory method
+                  // Fields and constructor params are written by AutoValue in same order as methods are declared.
+                  // By contract, SerializedNames factory methods must declare its names in the same order.
+                  List<Field> declaredFields = Arrays.asList(f.getDeclaringClass().getDeclaredFields());
+                  // Instrumentation libraries, such as JaCoCo might introduce synthetic fields to the class.
+                  // We should ignore them
+                  Iterable<Field> fields = filter(declaredFields, new Predicate<Field>() {
+                     @Override
+                     public boolean apply(Field input) {
+                        return !input.isSynthetic();
+                     }
+                  });
+                  int numFields = size(fields);
+                  if (numFields != names.value().length) {
+                     String message = "Incorrect number of names on %s. Class [%s]. Annotation config: [%s]. Fields in object; [%s]";
+                     String types = Joiner.on(",").join(transform(fields, new Function<Field, String>() {
+                        @Override
+                        public String apply(Field input) {
+                           return input.getType().getName();
+                        }
+                     }));
+                     throw new IllegalStateException(String.format(message, names, f.getDeclaringClass().getName(),
+                           Joiner.on(",").join(names.value()), types));
+                  }
+                  for (int i = 0; i < numFields; i++) {
+                     if (get(fields, i).equals(f)) {
+                        return names.value()[i];
+                     }
+                  }
+                  // The input field was not a declared field. Accidentally placed on something not AutoValue?
+                  throw new IllegalStateException("Inconsistent state. Ensure type is AutoValue on " + target);
+               }
+            }
+         }
          for (Annotation annotation : f.getAnnotations()) {
             if (annotationToNameExtractor.containsKey(annotation.annotationType())) {
                return annotationToNameExtractor.get(annotation.annotationType()).apply(annotation);
@@ -215,7 +261,7 @@ public class NamingStrategies {
                         public Class<? extends Annotation> apply(Annotation input) {
                            return input.annotationType();
                         }
-                     }).anyMatch(in(markers));
+                     }).anyMatch((Predicate<Class<? extends Annotation>>) in(markers));
             }
          };
       }
@@ -225,21 +271,40 @@ public class NamingStrategies {
          return tryFind(constructors(token), hasMarker).orNull();
       }
 
+      @SuppressWarnings("CollectionIncompatibleType")
       @VisibleForTesting
       <T> String translateName(Invokable<T, T> c, int index) {
          String name = null;
 
-         if (markers.contains(ConstructorProperties.class) && c.getAnnotation(ConstructorProperties.class) != null) {
-            String[] names = c.getAnnotation(ConstructorProperties.class).value();
+         if ((markers.contains(ConstructorProperties.class) && c.getAnnotation(ConstructorProperties.class) != null)
+               || (markers.contains(SerializedNames.class) && c.getAnnotation(SerializedNames.class) != null)) {
+
+            String[] names = c.getAnnotation(SerializedNames.class) != null
+                  ? c.getAnnotation(SerializedNames.class).value()
+                  : c.getAnnotation(ConstructorProperties.class).value();
+
+            if (names.length != c.getParameters().size()) {
+               String message = "Incorrect count of names on annotation of %s. Class: [%s]. Annotation config: [%s]. Parameters; [%s]";
+               String types = Joiner.on(",").join(transform(c.getParameters(), new Function<Parameter, String>() {
+                  @Override
+                  public String apply(Parameter input) {
+                     return input.getClass().getName();
+                  }
+               }));
+               throw new IllegalArgumentException(String.format(message, c, c.getDeclaringClass().getName(),
+                     Joiner.on(",").join(names), types));
+            }
+
             if (names != null && names.length > index) {
                name = names[index];
             }
-         }
 
-         for (Annotation annotation : c.getParameters().get(index).getAnnotations()) {
-            if (annotationToNameExtractor.containsKey(annotation.annotationType())) {
-               name = annotationToNameExtractor.get(annotation.annotationType()).apply(annotation);
-               break;
+         } else {
+            for (Annotation annotation : c.getParameters().get(index).getAnnotations()) {
+               if (annotationToNameExtractor.containsKey(annotation.annotationType())) {
+                  name = annotationToNameExtractor.get(annotation.annotationType()).apply(annotation);
+                  break;
+               }
             }
          }
          return name;

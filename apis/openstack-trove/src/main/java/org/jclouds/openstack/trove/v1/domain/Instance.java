@@ -24,8 +24,8 @@ import java.util.List;
 import org.jclouds.openstack.trove.v1.internal.Volume;
 import org.jclouds.openstack.v2_0.domain.Link;
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.collect.ImmutableList;
 
 /**

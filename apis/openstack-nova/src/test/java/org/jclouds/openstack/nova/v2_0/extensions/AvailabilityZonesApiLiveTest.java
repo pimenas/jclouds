@@ -16,15 +16,16 @@
  */
 package org.jclouds.openstack.nova.v2_0.extensions;
 
-import static org.testng.Assert.assertNotNull;
-import static org.testng.Assert.assertTrue;
-
-import org.jclouds.openstack.nova.v2_0.domain.zonescoped.AvailabilityZone;
+import com.google.common.base.Optional;
+import com.google.common.collect.FluentIterable;
+import org.jclouds.openstack.nova.v2_0.domain.regionscoped.AvailabilityZone;
+import org.jclouds.openstack.nova.v2_0.domain.regionscoped.AvailabilityZoneDetails;
+import org.jclouds.openstack.nova.v2_0.domain.regionscoped.AvailabilityZoneDetails.HostService;
 import org.jclouds.openstack.nova.v2_0.internal.BaseNovaApiLiveTest;
 import org.testng.annotations.Test;
 
-import com.google.common.base.Optional;
-import com.google.common.collect.FluentIterable;
+import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertTrue;
 
 @Test(groups = "live", testName = "AvailabilityZonesApiLiveTest")
 public class AvailabilityZonesApiLiveTest extends BaseNovaApiLiveTest {
@@ -34,11 +35,35 @@ public class AvailabilityZonesApiLiveTest extends BaseNovaApiLiveTest {
 
       Optional<? extends AvailabilityZoneApi> availabilityZoneApi = api.getAvailabilityZoneApi("RegionOne");
       if (availabilityZoneApi.isPresent()) {
-         FluentIterable<? extends AvailabilityZone> zones = availabilityZoneApi.get().list();
+         FluentIterable<? extends AvailabilityZone> zones = availabilityZoneApi.get().listAvailabilityZones();
 
          for (AvailabilityZone zone : zones) {
             assertNotNull(zone.getName());
-            assertTrue(zone.getState().available(), "zone: " + zone.getName() + " is not available.");
+            assertTrue(zone.getState().isAvailable(), "zone: " + zone.getName() + " is not available.");
+         }
+      }
+   }
+
+   @Test
+   public void testListInDetail() throws Exception {
+
+      Optional<? extends AvailabilityZoneApi> availabilityZoneApi = api.getAvailabilityZoneApi("RegionOne");
+      if (availabilityZoneApi.isPresent()) {
+         FluentIterable<? extends AvailabilityZoneDetails> zones = availabilityZoneApi.get().listInDetail();
+
+         for (AvailabilityZoneDetails zone : zones) {
+            assertNotNull(zone.getName());
+            assertTrue(zone.getState()
+                  .isAvailable(), "zone: " + zone.getName() + " is not available.");
+            String hostName = zone.getHosts().keySet().iterator().next();
+            assertNotNull(hostName, "Expected host name to be not null");
+            String hostServiceName = zone.getHosts().get(hostName).keySet().iterator().next();
+            assertNotNull(hostServiceName, "Expected host service name to be not null");
+            HostService hostService = zone.getHosts().get(hostName).get(hostServiceName);
+            assertTrue(hostService.isAvailable(), "Couldn't find host service availability");
+            assertTrue(hostService.isActive(), "Couldn't find host service state");
+            assertNotNull(hostService.getUpdated(), "Expected Updated time, but none received ");
+
          }
       }
    }

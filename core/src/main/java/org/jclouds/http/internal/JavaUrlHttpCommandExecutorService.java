@@ -18,15 +18,15 @@ package org.jclouds.http.internal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Throwables.propagate;
-import static com.google.common.io.ByteStreams.toByteArray;
-import static com.google.common.io.Closeables.close;
 import static com.google.common.net.HttpHeaders.CONTENT_LENGTH;
 import static com.google.common.net.HttpHeaders.HOST;
 import static com.google.common.net.HttpHeaders.USER_AGENT;
+import static org.jclouds.Constants.PROPERTY_IDEMPOTENT_METHODS;
+import static org.jclouds.Constants.PROPERTY_USER_AGENT;
 import static org.jclouds.http.HttpUtils.filterOutContentHeaders;
 import static org.jclouds.io.Payloads.newInputStreamPayload;
+import static org.jclouds.util.Closeables2.closeQuietly;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
@@ -44,7 +44,6 @@ import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
 
-import org.jclouds.JcloudsVersion;
 import org.jclouds.http.HttpRequest;
 import org.jclouds.http.HttpResponse;
 import org.jclouds.http.HttpUtils;
@@ -60,37 +59,33 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableMultimap.Builder;
 import com.google.common.io.ByteStreams;
-import com.google.common.io.Closeables;
 import com.google.common.io.CountingOutputStream;
 import com.google.inject.Inject;
 
-/**
- * Basic implementation of a {@link HttpCommandExecutorService}.
- */
 @Singleton
 public class JavaUrlHttpCommandExecutorService extends BaseHttpCommandExecutorService<HttpURLConnection> {
-
-   public static final String DEFAULT_USER_AGENT = String.format("jclouds/%s java/%s", JcloudsVersion.get(), System
-            .getProperty("java.version"));
-
    protected final Supplier<SSLContext> untrustedSSLContextProvider;
    protected final Function<URI, Proxy> proxyForURI;
    protected final HostnameVerifier verifier;
    @Inject(optional = true)
    protected Supplier<SSLContext> sslContextSupplier;
+   protected final String userAgent;
 
    @Inject
    public JavaUrlHttpCommandExecutorService(HttpUtils utils, ContentMetadataCodec contentMetadataCodec,
-            DelegatingRetryHandler retryHandler, IOExceptionRetryHandler ioRetryHandler,
-            DelegatingErrorHandler errorHandler, HttpWire wire, @Named("untrusted") HostnameVerifier verifier,
-            @Named("untrusted") Supplier<SSLContext> untrustedSSLContextProvider, Function<URI, Proxy> proxyForURI) 
-                  throws SecurityException, NoSuchFieldException {
-      super(utils, contentMetadataCodec, retryHandler, ioRetryHandler, errorHandler, wire);
-      if (utils.getMaxConnections() > 0)
+         DelegatingRetryHandler retryHandler, IOExceptionRetryHandler ioRetryHandler,
+         DelegatingErrorHandler errorHandler, HttpWire wire, @Named("untrusted") HostnameVerifier verifier,
+         @Named("untrusted") Supplier<SSLContext> untrustedSSLContextProvider, Function<URI, Proxy> proxyForURI,
+         @Named(PROPERTY_IDEMPOTENT_METHODS) String idempotentMethods,
+         @Named(PROPERTY_USER_AGENT) String userAgent) {
+      super(utils, contentMetadataCodec, retryHandler, ioRetryHandler, errorHandler, wire, idempotentMethods);
+      if (utils.getMaxConnections() > 0) {
          System.setProperty("http.maxConnections", String.valueOf(checkNotNull(utils, "utils").getMaxConnections()));
+      }
       this.untrustedSSLContextProvider = checkNotNull(untrustedSSLContextProvider, "untrustedSSLContextProvider");
       this.verifier = checkNotNull(verifier, "verifier");
       this.proxyForURI = checkNotNull(proxyForURI, "proxyForURI");
+      this.userAgent = userAgent;
    }
 
    @Override
@@ -100,15 +95,15 @@ public class JavaUrlHttpCommandExecutorService extends BaseHttpCommandExecutorSe
       try {
          in = connection.getInputStream();
       } catch (IOException e) {
-         in = bufferAndCloseStream(connection.getErrorStream());
+         in = connection.getErrorStream();
       } catch (RuntimeException e) {
-         close(in, true);
-         throw propagate(e);
+         closeQuietly(in);
+         throw e;
       }
 
       int responseCode = connection.getResponseCode();
       if (responseCode == 204) {
-         close(in, true);
+         closeQuietly(in);
          in = null;
       }
       builder.statusCode(responseCode);
@@ -129,18 +124,6 @@ public class JavaUrlHttpCommandExecutorService extends BaseHttpCommandExecutorSe
       }
       builder.headers(filterOutContentHeaders(headers));
       return builder.build();
-   }
-
-   private InputStream bufferAndCloseStream(InputStream inputStream) throws IOException {
-      InputStream in = null;
-      try {
-         if (inputStream != null) {
-            in = new ByteArrayInputStream(toByteArray(inputStream));
-         }
-      } finally {
-         close(inputStream, true);
-      }
-      return in;
    }
 
    @Override
@@ -165,7 +148,7 @@ public class JavaUrlHttpCommandExecutorService extends BaseHttpCommandExecutorSe
       }
       connection.setRequestProperty(HOST, host);
       if (connection.getRequestProperty(USER_AGENT) == null) {
-          connection.setRequestProperty(USER_AGENT, DEFAULT_USER_AGENT);
+         connection.setRequestProperty(USER_AGENT, userAgent);
       }
       Payload payload = request.getPayload();
       if (payload != null) {
@@ -177,10 +160,14 @@ public class JavaUrlHttpCommandExecutorService extends BaseHttpCommandExecutorSe
             connection.setChunkedStreamingMode(8196);
             writePayloadToConnection(payload, "streaming", connection);
          } else {
-            long length = checkNotNull(md.getContentLength(), "payload.getContentLength");
+            Long length = checkNotNull(md.getContentLength(), "payload.getContentLength");
             if (length > 0) {
-               connection.setRequestProperty(CONTENT_LENGTH, String.valueOf(length));
-               connection.setFixedLengthStreamingMode(length);
+               connection.setRequestProperty(CONTENT_LENGTH, length.toString());
+               if (length <= Integer.MAX_VALUE) {
+                  connection.setFixedLengthStreamingMode(length.intValue());
+               } else {
+                  setFixedLengthStreamingMode(connection, length);
+               }
                writePayloadToConnection(payload, length, connection);
             } else {
                writeNothing(connection);
@@ -190,6 +177,17 @@ public class JavaUrlHttpCommandExecutorService extends BaseHttpCommandExecutorSe
          writeNothing(connection);
       }
       return connection;
+   }
+
+   /** Uses {@link HttpURLConnection#setFixedLengthStreamingMode(long)} if possible or throws if not. */
+   private static void setFixedLengthStreamingMode(HttpURLConnection connection, long length) {
+      try { // Not caching method as invocation is literally sending > 2GB, which means reflection isn't a limiter!
+         HttpURLConnection.class.getMethod("setFixedLengthStreamingMode", long.class).invoke(connection, length);
+      } catch (Exception e) {
+         throw new IllegalArgumentException("Cannot transfer 2 GB or larger chunks due to JDK 1.6 limitations." +
+               " Use chunked encoding or multi-part upload, if possible, or use a different http driver." +
+               " For more information: http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=6755625");
+      }
    }
 
    /**
@@ -278,7 +276,7 @@ public class JavaUrlHttpCommandExecutorService extends BaseHttpCommandExecutorSe
          // HttpUrlConnection strips Content-Length: 0 without setDoOutput(true)
          String method = connection.getRequestMethod();
          if ("POST".equals(method) || "PUT".equals(method)) {
-            connection.setFixedLengthStreamingMode(0L);
+            connection.setFixedLengthStreamingMode(0);
             connection.setDoOutput(true);
          }
       }
@@ -302,7 +300,7 @@ public class JavaUrlHttpCommandExecutorService extends BaseHttpCommandExecutorSe
          logger.error(e, "error after writing %d/%s bytes to %s", out.getCount(), lengthDesc, connection.getURL());
          throw e;
       } finally {
-         Closeables.closeQuietly(is);
+         closeQuietly(is);
       }
    }
 

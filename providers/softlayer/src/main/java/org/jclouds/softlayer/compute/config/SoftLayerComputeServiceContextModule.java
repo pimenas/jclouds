@@ -71,14 +71,15 @@ public class SoftLayerComputeServiceContextModule extends
       }).to(DatacenterToLocation.class);
       bind(TemplateOptions.class).to(SoftLayerTemplateOptions.class);
       // to have the compute service adapter override default locations
-      install(new LocationsFromComputeServiceAdapterModule<VirtualGuest, Hardware, OperatingSystem, Datacenter>(){});
+      install(new LocationsFromComputeServiceAdapterModule<VirtualGuest, Hardware, OperatingSystem, Datacenter>() {
+      });
 
    }
 
    @Provides
    @Singleton
    @Memoized
-   public Supplier<ContainerVirtualGuestConfiguration> getCreateObjectOptions(
+   public final Supplier<ContainerVirtualGuestConfiguration> getCreateObjectOptions(
            AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
            final SoftLayerApi api) {
       return MemoizedRetryOnTimeOutButNotOnAuthorizationExceptionSupplier.create(authException,

@@ -17,6 +17,7 @@
 package org.jclouds.s3.config;
 
 import java.net.URI;
+import java.util.Date;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -33,6 +34,7 @@ import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.date.DateService;
 import org.jclouds.date.TimeStamp;
 import org.jclouds.http.HttpErrorHandler;
+import org.jclouds.http.HttpRequest;
 import org.jclouds.http.HttpRetryHandler;
 import org.jclouds.http.annotation.ClientError;
 import org.jclouds.http.annotation.Redirection;
@@ -46,6 +48,7 @@ import org.jclouds.s3.S3Client;
 import org.jclouds.s3.blobstore.functions.BucketsToStorageMetadata;
 import org.jclouds.s3.domain.BucketMetadata;
 import org.jclouds.s3.filters.RequestAuthorizeSignature;
+import org.jclouds.s3.filters.RequestAuthorizeSignatureV2;
 import org.jclouds.s3.functions.GetRegionForBucket;
 import org.jclouds.s3.handlers.ParseS3ErrorFromXmlContent;
 import org.jclouds.s3.handlers.S3RedirectionRetryHandler;
@@ -80,6 +83,11 @@ public class S3HttpApiModule<S extends S3Client> extends AWSHttpApiModule<S> {
    @Provides
    @Bucket
    @Singleton
+   protected final CacheLoader<String, Optional<String>> provideBucketToRegion(@Region Supplier<Set<String>> regionSupplier,
+            final S3Client client) {
+      return bucketToRegion(regionSupplier, client);
+   }
+
    protected CacheLoader<String, Optional<String>> bucketToRegion(@Region Supplier<Set<String>> regionSupplier,
             final S3Client client) {
       Set<String> regions = regionSupplier.get();
@@ -133,13 +141,17 @@ public class S3HttpApiModule<S extends S3Client> extends AWSHttpApiModule<S> {
    @Provides
    @Bucket
    @Singleton
-   protected LoadingCache<String, Optional<String>> bucketToRegion(@Bucket CacheLoader<String, Optional<String>> loader) {
+   protected final LoadingCache<String, Optional<String>> bucketToRegion(@Bucket CacheLoader<String, Optional<String>> loader) {
       return CacheBuilder.newBuilder().build(loader);
    }
 
    @Provides
    @Bucket
    @Singleton
+   protected final Supplier<String> provideDefaultRegionForBucket(@Region Supplier<String> defaultRegion) {
+      return defaultRegionForBucket(defaultRegion);
+   }
+
    protected Supplier<String> defaultRegionForBucket(@Region Supplier<String> defaultRegion) {
       return defaultRegion;
    }
@@ -147,7 +159,7 @@ public class S3HttpApiModule<S extends S3Client> extends AWSHttpApiModule<S> {
    @Provides
    @Singleton
    @Bucket
-   protected Supplier<URI> provideBucketURI(@Bucket Supplier<String> defaultRegion,
+   protected final Supplier<URI> provideBucketURI(@Bucket Supplier<String> defaultRegion,
             RegionToEndpointOrProviderIfNull regionToEndpoint) {
       return Suppliers.compose(regionToEndpoint, defaultRegion);
    }
@@ -172,13 +184,26 @@ public class S3HttpApiModule<S extends S3Client> extends AWSHttpApiModule<S> {
    }
 
    protected void bindRequestSigner() {
-      bind(RequestAuthorizeSignature.class).in(Scopes.SINGLETON);
+      bind(RequestAuthorizeSignature.class).to(RequestAuthorizeSignatureV2.class).in(Scopes.SINGLETON);
    }
 
    @Provides
    @Singleton
-   protected RequestSigner provideRequestSigner(RequestAuthorizeSignature in) {
-      return in;
+   protected final RequestSigner provideRequestSigner(RequestAuthorizeSignature in) {
+      if (in instanceof RequestSigner) {
+         return (RequestSigner) in;
+      }
+      return new RequestSigner() {
+         @Override
+         public String createStringToSign(HttpRequest input) {
+            return null;
+         }
+
+         @Override
+         public String sign(String toSign) {
+            return null;
+         }
+      };
    }
 
    @Override
@@ -190,6 +215,10 @@ public class S3HttpApiModule<S extends S3Client> extends AWSHttpApiModule<S> {
 
    @Provides
    @TimeStamp
+   protected final String guiceProvideTimeStamp(@TimeStamp Supplier<String> cache) {
+      return provideTimeStamp(cache);
+   }
+
    protected String provideTimeStamp(@TimeStamp Supplier<String> cache) {
       return cache.get();
    }
@@ -200,11 +229,42 @@ public class S3HttpApiModule<S extends S3Client> extends AWSHttpApiModule<S> {
    @Provides
    @TimeStamp
    @Singleton
-   protected Supplier<String> provideTimeStampCache(@Named(Constants.PROPERTY_SESSION_INTERVAL) long seconds,
+   protected final Supplier<String> provideTimeStampCache(@Named(Constants.PROPERTY_SESSION_INTERVAL) long seconds,
             final DateService dateService) {
       return Suppliers.memoizeWithExpiration(new Supplier<String>() {
+         @Override
          public String get() {
             return dateService.rfc822DateFormat();
+         }
+      }, seconds, TimeUnit.SECONDS);
+   }
+
+   @Provides
+   @TimeStamp
+   protected Date provideTimeStampDate(@TimeStamp Supplier<Date> cache) {
+      return cache.get();
+   }
+
+    /**
+    * borrowing concurrency code to ensure that caching takes place properly
+    */
+   @Provides
+   @TimeStamp
+   @Singleton
+   protected final Supplier<Date> guiceProvideTimeStampCacheDate(
+      @Named(Constants.PROPERTY_SESSION_INTERVAL) long seconds,
+      @TimeStamp final Supplier<String> timestamp,
+      final DateService dateService) {
+      return provideTimeStampCacheDate(seconds, timestamp, dateService);
+   }
+
+   protected Supplier<Date> provideTimeStampCacheDate(
+      @Named(Constants.PROPERTY_SESSION_INTERVAL) long seconds,
+      @TimeStamp final Supplier<String> timestamp,
+      final DateService dateService) {
+      return Suppliers.memoizeWithExpiration(new Supplier<Date>() {
+         public Date get() {
+            return dateService.rfc822DateParse(timestamp.get());
          }
       }, seconds, TimeUnit.SECONDS);
    }

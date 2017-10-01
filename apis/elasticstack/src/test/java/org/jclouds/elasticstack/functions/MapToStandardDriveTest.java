@@ -33,7 +33,7 @@ import com.google.common.collect.ImmutableSet;
 
 @Test(groups = { "unit" })
 public class MapToStandardDriveTest {
-   public static StandardDrive ONE = new StandardDrive.Builder()
+   public static final StandardDrive ONE = new StandardDrive.Builder()
          .name("Windows Web Server 2008 R2")
          .uuid("11b84345-7169-4279-8038-18d6ba1a7712")//
          .claimType(ClaimType.SHARED)
@@ -51,8 +51,8 @@ public class MapToStandardDriveTest {
    }
 
    public void testBasics() {
-      StandardDrive expects = new StandardDrive.Builder().name("foo").size(100l).media(MediaType.DISK)
-            .format(ImageConversionType.GZIP).rawSize(5l).build();
+      StandardDrive expects = new StandardDrive.Builder().name("foo").size(100L).media(MediaType.DISK)
+            .format(ImageConversionType.GZIP).rawSize(5L).build();
       assertEquals(MAP_TO_STANDARD_DRIVE.apply(ImmutableMap.of("name", "foo", "size", "100", "format", "gzip", "media",
             "disk", "rawsize", "5")), expects);
    }

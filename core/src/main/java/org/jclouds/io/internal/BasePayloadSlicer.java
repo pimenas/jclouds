@@ -19,10 +19,7 @@ package org.jclouds.io.internal;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
@@ -37,7 +34,6 @@ import org.jclouds.io.Payloads;
 import org.jclouds.io.PayloadSlicer;
 import org.jclouds.io.payloads.BaseMutableContentMetadata;
 import org.jclouds.io.payloads.ByteSourcePayload;
-import org.jclouds.io.payloads.InputStreamPayload;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Throwables;
@@ -49,16 +45,30 @@ import com.google.common.io.Files;
 @Singleton
 public class BasePayloadSlicer implements PayloadSlicer {
 
-   public static class PayloadIterator implements Iterable<Payload>, Iterator<Payload> {
+   private static final class InputStreamPayloadIterable implements Iterable<Payload> {
+      private final InputStream input;
+      private final ContentMetadata metaData;
 
+      InputStreamPayloadIterable(InputStream input, ContentMetadata metaData) {
+         this.input = checkNotNull(input, "input");
+         this.metaData = checkNotNull(metaData, "metaData");
+      }
+
+      @Override
+      public Iterator<Payload> iterator() {
+         return new InputStreamPayloadIterator(input, metaData);
+      }
+   }
+
+   private static final class InputStreamPayloadIterator implements Iterator<Payload> {
       private final InputStream input;
       private final ContentMetadata metaData;
       private Payload nextPayload;
       private final int readLen;
 
-      public PayloadIterator(InputStream input, ContentMetadata meta) {
+      InputStreamPayloadIterator(InputStream input, ContentMetadata metaData) {
          this.input = checkNotNull(input, "input");
-         this.metaData = checkNotNull(meta, "meta");
+         this.metaData = checkNotNull(metaData, "metaData");
          this.readLen = checkNotNull(this.metaData.getContentLength(), "content-length").intValue();
 
          this.nextPayload = getNextPayload();
@@ -84,12 +94,7 @@ public class BasePayloadSlicer implements PayloadSlicer {
 
       @Override
       public void remove() {
-         throw new UnsupportedOperationException();
-      }
-
-      @Override
-      public Iterator<Payload> iterator() {
-         return this;
+         throw new UnsupportedOperationException("Payload iterator does not support removal");
       }
 
       private Payload getNextPayload() {
@@ -119,7 +124,7 @@ public class BasePayloadSlicer implements PayloadSlicer {
          Payload payload = null;
 
          if (content.length > 0) {
-            payload = Payloads.newPayload(content);
+            payload = Payloads.newByteArrayPayload(content);
             ContentMetadata cm = metaData.toBuilder().contentLength((long)content.length).contentMD5((HashCode) null).build();
             payload.setContentMetadata(BaseMutableContentMetadata.fromContentMetadata(cm));
          }
@@ -127,6 +132,81 @@ public class BasePayloadSlicer implements PayloadSlicer {
          return payload;
       }
 
+   }
+
+   private static final class ByteSourcePayloadIterable implements Iterable<Payload> {
+      private final ByteSource input;
+      private final ContentMetadata metaData;
+
+      ByteSourcePayloadIterable(ByteSource input, ContentMetadata metaData) {
+         this.input = checkNotNull(input, "input");
+         this.metaData = checkNotNull(metaData, "metaData");
+      }
+
+      @Override
+      public Iterator<Payload> iterator() {
+         return new ByteSourcePayloadIterator(input, metaData);
+      }
+   }
+
+   private static final class ByteSourcePayloadIterator implements Iterator<Payload> {
+      private final ByteSource input;
+      private final ContentMetadata metaData;
+      private Payload nextPayload;
+      private long offset = 0;
+      private final long readLen;
+
+      ByteSourcePayloadIterator(ByteSource input, ContentMetadata metaData) {
+         this.input = checkNotNull(input, "input");
+         this.metaData = checkNotNull(metaData, "metaData");
+         this.readLen = checkNotNull(this.metaData.getContentLength(), "content-length").longValue();
+         this.nextPayload = getNextPayload();
+      }
+
+      @Override
+      public boolean hasNext() {
+         return nextPayload != null;
+      }
+
+      @Override
+      public Payload next() {
+         if (!hasNext()) {
+            throw new NoSuchElementException();
+         }
+
+         Payload payload = nextPayload;
+         nextPayload = getNextPayload();
+
+         return payload;
+      }
+
+      @Override
+      public void remove() {
+         throw new UnsupportedOperationException("Payload iterator does not support removal");
+      }
+
+      private Payload getNextPayload() {
+         ByteSource byteSource;
+         long byteSourceSize;
+         try {
+            if (offset >= input.size()) {
+               return null;
+            }
+            byteSource = input.slice(offset, readLen);
+            byteSourceSize = byteSource.size();
+         } catch (IOException e) {
+            throw Throwables.propagate(e);
+         }
+
+         Payload nextPayload = new ByteSourcePayload(byteSource);
+         ContentMetadata cm = metaData.toBuilder()
+               .contentLength(byteSourceSize)
+               .contentMD5((HashCode) null)
+               .build();
+         nextPayload.setContentMetadata(BaseMutableContentMetadata.fromContentMetadata(cm));
+         offset += byteSourceSize;
+         return nextPayload;
+      }
    }
 
    /**
@@ -172,19 +252,18 @@ public class BasePayloadSlicer implements PayloadSlicer {
       } catch (IOException ioe) {
          throw Throwables.propagate(ioe);
       }
-      return new InputStreamPayload(ByteStreams.limit(content, length));
+      return Payloads.newInputStreamPayload(ByteStreams.limit(content, length));
    }
 
    protected Payload doSlice(ByteSource content, long offset, long length) {
-      return new ByteSourcePayload(content.slice(offset, length));
+      return Payloads.newByteSourcePayload(content.slice(offset, length));
    }
 
    protected Payload doSlice(byte[] content, long offset, long length) {
-      Payload returnVal;
       checkArgument(offset <= Integer.MAX_VALUE, "offset is too big for an array");
       checkArgument(length <= Integer.MAX_VALUE, "length is too big for an array");
-      returnVal = new ByteSourcePayload(ByteSource.wrap(content).slice(offset, length));
-      return returnVal;
+      // TODO(adriancole): Make ByteArrayPayload carry offset, length as opposed to wrapping here.
+      return Payloads.newByteSourcePayload(ByteSource.wrap(content).slice(offset, length));
    }
 
    protected Payload copyMetadataAndSetLength(Payload input, Payload returnVal, long length) {
@@ -212,6 +291,8 @@ public class BasePayloadSlicer implements PayloadSlicer {
          return doSlice((byte[]) rawContent, meta);
       } else if (rawContent instanceof InputStream) {
          return doSlice((InputStream) rawContent, meta);
+      } else if (rawContent instanceof ByteSource) {
+         return doSlice((ByteSource) rawContent, meta);
       } else {
          return doSlice(input, meta);
       }
@@ -223,23 +304,22 @@ public class BasePayloadSlicer implements PayloadSlicer {
    }
 
    protected Iterable<Payload> doSlice(String rawContent, ContentMetadata meta) {
-      return doSlice(rawContent.getBytes(Charsets.UTF_8), meta);
+      return doSlice(ByteSource.wrap(rawContent.getBytes(Charsets.UTF_8)), meta);
    }
 
    protected Iterable<Payload> doSlice(byte[] rawContent, ContentMetadata meta) {
-      return doSlice(new ByteArrayInputStream(rawContent), meta);
+      return doSlice(ByteSource.wrap(rawContent), meta);
    }
 
    protected Iterable<Payload> doSlice(File rawContent, ContentMetadata meta) {
-      try {
-         return doSlice(new FileInputStream(rawContent), meta);
-      } catch (FileNotFoundException e) {
-         throw Throwables.propagate(e);
-      }
+      return doSlice(Files.asByteSource(rawContent), meta);
    }
 
    protected Iterable<Payload> doSlice(InputStream rawContent, ContentMetadata meta) {
-      return new PayloadIterator(rawContent, meta);
+      return new InputStreamPayloadIterable(rawContent, meta);
    }
 
+   protected Iterable<Payload> doSlice(ByteSource rawContent, ContentMetadata meta) {
+      return new ByteSourcePayloadIterable(rawContent, meta);
+   }
 }

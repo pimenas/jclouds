@@ -17,7 +17,6 @@
 package org.jclouds.openstack.nova.v2_0.features;
 
 import static org.jclouds.openstack.nova.v2_0.domain.Server.Status.ACTIVE;
-import static org.jclouds.openstack.nova.v2_0.predicates.ServerPredicates.awaitActive;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
@@ -67,7 +66,7 @@ public class ServerApiLiveTest extends BaseNovaApiLiveTest {
       }
    }
 
-   @Test(description = "GET /v${apiVersion}/{tenantId}/servers/{id}", dependsOnMethods = { "testListServersInDetail" })
+   @Test(description = "GET /v${apiVersion}/{tenantId}/servers/{id}", dependsOnMethods = {"testListServersInDetail"})
    public void testGetServerById() throws Exception {
       for (String regionId : regions) {
          ServerApi serverApi = api.getServerApi(regionId);
@@ -117,11 +116,9 @@ public class ServerApiLiveTest extends BaseNovaApiLiveTest {
             CreateServerOptions options = CreateServerOptions.Builder.novaNetworks(
                   // This network UUID must match an existing network.
                   ImmutableSet.of(Network.builder().networkUuid("bc4cfa2b-2b27-4671-8e8f-73009623def0").fixedIp("192.168.55.56").build())
-                  );
-            ServerCreated server = serverApi.create(hostName, imageIdForRegion(regionId), "1", options);
+            );
+            ServerCreated server = serverApi.create(hostName, imageId(regionId), "1", options);
             serverId = server.getId();
-
-            awaitActive(serverApi).apply(server.getId());
 
             Server serverCheck = serverApi.get(serverId);
             assertEquals(serverCheck.getStatus(), ACTIVE);
@@ -135,9 +132,9 @@ public class ServerApiLiveTest extends BaseNovaApiLiveTest {
 
    /**
     * This test creates a new server with a boot device from an image.
-    *
+    * <p/>
     * This needs to be supported by the provider, and is usually not supported.
-    *
+    * <p/>
     * TODO: Configurable system properties for flavor/image refs.
     */
    @Test
@@ -163,9 +160,6 @@ public class ServerApiLiveTest extends BaseNovaApiLiveTest {
 
                ServerCreated server = serverApi.create(hostName, "", flavorRef, options);
                serverId = server.getId();
-
-               awaitActive(serverApi).apply(server.getId());
-
                Server serverCheck = serverApi.get(serverId);
                assertEquals(serverCheck.getStatus(), ACTIVE);
             } finally {
@@ -183,7 +177,7 @@ public class ServerApiLiveTest extends BaseNovaApiLiveTest {
       for (String regionId : regions) {
          ServerApi serverApi = api.getServerApi(regionId);
          try {
-             serverId = createServer(regionId, "err").getId();
+            serverId = createServer(regionId, "err").getId();
          } catch (HttpResponseException e) {
             // Here is an implementation detail difference between OpenStack and some providers.
             // Some providers accept a bad availability zone and create the server in the zoneId.
@@ -237,12 +231,10 @@ public class ServerApiLiveTest extends BaseNovaApiLiveTest {
 
       CreateServerOptions options = new CreateServerOptions();
       if (availabilityZoneId != null) {
-          options = options.availabilityZone(availabilityZoneId);
+         options = options.availabilityZone(availabilityZoneId);
       }
 
-      ServerCreated server = serverApi.create(hostName, imageIdForRegion(regionId), flavorRefForRegion(regionId), options);
-
-      awaitActive(serverApi).apply(server.getId());
+      ServerCreated server = serverApi.create(hostName, imageId(regionId), flavorId(regionId), options);
 
       return serverApi.get(server.getId());
    }

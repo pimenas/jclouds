@@ -16,7 +16,9 @@
  */
 package org.jclouds.filesystem.strategy.internal;
 
-import static java.nio.file.Files.getFileStore;
+import static org.jclouds.filesystem.util.Utils.isMacOSX;
+import static org.jclouds.utils.TestUtils.NO_INVOCATIONS;
+import static org.jclouds.utils.TestUtils.SINGLE_NO_ARG_INVOCATION;
 import static org.jclouds.utils.TestUtils.randomByteSource;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
@@ -27,18 +29,21 @@ import static org.testng.Assert.fail;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.nio.file.Paths;
-import java.nio.file.attribute.UserDefinedFileAttributeView;
+import java.nio.file.InvalidPathException;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import javax.inject.Provider;
 
+import org.assertj.core.api.Fail;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobBuilder;
+import org.jclouds.blobstore.domain.ContainerAccess;
 import org.jclouds.blobstore.domain.internal.BlobBuilderImpl;
 import org.jclouds.blobstore.options.ListContainerOptions;
+import org.jclouds.domain.Location;
 import org.jclouds.filesystem.predicates.validators.internal.FilesystemBlobKeyValidatorImpl;
 import org.jclouds.filesystem.predicates.validators.internal.FilesystemContainerNameValidatorImpl;
 import org.jclouds.filesystem.utils.TestUtils;
@@ -47,14 +52,16 @@ import org.jclouds.io.payloads.InputStreamPayload;
 import org.jclouds.util.Throwables2;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
-import org.testng.SkipException;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.io.ByteSource;
 import com.google.common.io.Files;
+import com.google.common.util.concurrent.Uninterruptibles;
 
 /**
  * Test class for {@link FilesystemStorageStrategyImpl } class
@@ -68,6 +75,12 @@ public class FilesystemStorageStrategyImplTest {
    private static final String LOGGING_CONFIG_VALUE = "src/main/resources/logging.properties";
 
    private static final String FS = File.separator;
+   private static final Supplier<Location> defaultLocation = new Supplier<Location>() {
+      @Override
+      public Location get() {
+         return null;
+      }
+   };
 
    static {
       System.setProperty(LOGGING_CONFIG_KEY, LOGGING_CONFIG_VALUE);
@@ -83,7 +96,7 @@ public class FilesystemStorageStrategyImplTest {
             return new BlobBuilderImpl();
          }
 
-      }, TestUtils.TARGET_BASE_DIR, new FilesystemContainerNameValidatorImpl(), new FilesystemBlobKeyValidatorImpl());
+      }, TestUtils.TARGET_BASE_DIR, false, new FilesystemContainerNameValidatorImpl(), new FilesystemBlobKeyValidatorImpl(), defaultLocation);
       TestUtils.cleanDirectoryContent(TestUtils.TARGET_BASE_DIR);
       TestUtils.createResources();
    }
@@ -92,7 +105,7 @@ public class FilesystemStorageStrategyImplTest {
    protected void tearDown() throws IOException {
       TestUtils.cleanDirectoryContent(TestUtils.TARGET_BASE_DIR);
    }
-   
+
    public void testCreateDirectory() {
       storageStrategy.createDirectory(CONTAINER_NAME, null);
       TestUtils.directoryExists(TARGET_CONTAINER_NAME, true);
@@ -122,6 +135,20 @@ public class FilesystemStorageStrategyImplTest {
       result = storageStrategy.createContainer(CONTAINER_NAME);
       assertTrue(result, "Container not created");
       TestUtils.directoryExists(TARGET_CONTAINER_NAME, true);
+   }
+
+   public void testCreateContainerAccess() {
+      boolean result;
+
+      TestUtils.directoryExists(TARGET_CONTAINER_NAME, false);
+      result = storageStrategy.createContainer(CONTAINER_NAME);
+      assertTrue(result, "Container not created");
+      TestUtils.directoryExists(TARGET_CONTAINER_NAME, true);
+
+      storageStrategy.setContainerAccess(CONTAINER_NAME, ContainerAccess.PRIVATE);
+      assertEquals(storageStrategy.getContainerAccess(CONTAINER_NAME), ContainerAccess.PRIVATE);
+      storageStrategy.setContainerAccess(CONTAINER_NAME, ContainerAccess.PUBLIC_READ);
+      assertEquals(storageStrategy.getContainerAccess(CONTAINER_NAME), ContainerAccess.PUBLIC_READ);
    }
 
    public void testCreateContainer_ContainerAlreadyExists() {
@@ -159,14 +186,6 @@ public class FilesystemStorageStrategyImplTest {
                TestUtils.createRandomBlobKey("lev1" + FS + "lev2" + FS + "lev4" + FS, ".jpg") });
       storageStrategy.deleteDirectory(CONTAINER_NAME, null);
       TestUtils.directoryExists(TARGET_CONTAINER_NAME, false);
-   }
-
-   public void testDeleteDirectory_ErrorWhenNotExists() {
-      try {
-         storageStrategy.deleteDirectory(CONTAINER_NAME, null);
-         fail("No exception throwed");
-      } catch (Exception e) {
-      }
    }
 
    public void testDirectoryExists() throws IOException {
@@ -341,6 +360,102 @@ public class FilesystemStorageStrategyImplTest {
       assertEquals(newBlob.getMetadata().getName(), blobKey, "Created blob name is different");
    }
 
+   @Test(dataProvider = "ignoreOnMacOSX")
+   public void testWriteDirectoryBlob() throws IOException {
+      String blobKey = TestUtils.createRandomBlobKey("a/b/c/directory-", "/");
+      Blob blob = storageStrategy.newBlob(blobKey);
+      storageStrategy.putBlob(CONTAINER_NAME, blob);
+      // verify that the files is equal
+      File blobFullPath = new File(TARGET_CONTAINER_NAME, blobKey);
+      assertTrue(blobFullPath.isDirectory());
+
+      assertTrue(storageStrategy.blobExists(CONTAINER_NAME, blobKey));
+   }
+
+   @Test(dataProvider = "ignoreOnMacOSX")
+   public void testGetDirectoryBlob() throws IOException {
+      String blobKey = TestUtils.createRandomBlobKey("a/b/c/directory-", "/");
+      Blob blob = storageStrategy.newBlob(blobKey);
+      storageStrategy.putBlob(CONTAINER_NAME, blob);
+
+      assertTrue(storageStrategy.blobExists(CONTAINER_NAME, blobKey));
+
+      blob = storageStrategy.getBlob(CONTAINER_NAME, blobKey);
+      assertEquals(blob.getMetadata().getName(), blobKey, "Created blob name is different");
+
+      assertTrue(!storageStrategy.blobExists(CONTAINER_NAME,
+              blobKey.substring(0, blobKey.length() - 1)));
+   }
+
+   @Test(dataProvider = "ignoreOnMacOSX")
+   public void testGetBlobContentType_AutoDetect_True() throws IOException {
+      FilesystemStorageStrategyImpl storageStrategyAutoDetectContentType = new FilesystemStorageStrategyImpl(
+          new Provider<BlobBuilder>() {
+             @Override
+             public BlobBuilder get() {
+                return new BlobBuilderImpl();
+             }
+          }, TestUtils.TARGET_BASE_DIR, true, new FilesystemContainerNameValidatorImpl(), new FilesystemBlobKeyValidatorImpl(), defaultLocation);
+
+      String blobKey = TestUtils.createRandomBlobKey("file-", ".jpg");
+      TestUtils.createBlobsInContainer(CONTAINER_NAME, blobKey);
+      Blob blob = storageStrategyAutoDetectContentType.getBlob(CONTAINER_NAME, blobKey);
+      assertEquals(blob.getMetadata().getContentMetadata().getContentType(), "image/jpeg");
+
+      blobKey = TestUtils.createRandomBlobKey("file-", ".pdf");
+      TestUtils.createBlobsInContainer(CONTAINER_NAME, blobKey);
+      blob = storageStrategyAutoDetectContentType.getBlob(CONTAINER_NAME, blobKey);
+      assertEquals(blob.getMetadata().getContentMetadata().getContentType(), "application/pdf");
+
+      blobKey = TestUtils.createRandomBlobKey("file-", ".mp4");
+      TestUtils.createBlobsInContainer(CONTAINER_NAME, blobKey);
+      blob = storageStrategyAutoDetectContentType.getBlob(CONTAINER_NAME, blobKey);
+      assertEquals(blob.getMetadata().getContentMetadata().getContentType(), "video/mp4");
+   }
+
+   @Test(dataProvider = "ignoreOnMacOSX")
+   public void testGetBlobContentType_AutoDetect_False() throws IOException {
+      String blobKey = TestUtils.createRandomBlobKey("file-", ".jpg");
+      TestUtils.createBlobsInContainer(CONTAINER_NAME, blobKey);
+      Blob blob = storageStrategy.getBlob(CONTAINER_NAME, blobKey);
+      assertEquals(blob.getMetadata().getContentMetadata().getContentType(), null);
+   }
+
+   public void testListDirectoryBlob() throws IOException {
+      String blobKey = TestUtils.createRandomBlobKey("directory-", File.separator);
+      Blob blob = storageStrategy.newBlob(blobKey);
+      storageStrategy.putBlob(CONTAINER_NAME, blob);
+
+      Iterable<String> keys = storageStrategy.getBlobKeysInsideContainer(CONTAINER_NAME);
+      Iterator<String> iter = keys.iterator();
+      assertTrue(iter.hasNext());
+      assertEquals(iter.next(), blobKey);
+      assertFalse(iter.hasNext());
+   }
+
+   public void testDeleteDirectoryBlob() throws IOException {
+      String blobKey = TestUtils.createRandomBlobKey("a/b/c/directory-", "/");
+      Blob blob = storageStrategy.newBlob(blobKey);
+      storageStrategy.putBlob(CONTAINER_NAME, blob);
+      File blobFullPath = new File(TARGET_CONTAINER_NAME, blobKey);
+      assertTrue(blobFullPath.isDirectory());
+
+      storageStrategy.removeBlob(CONTAINER_NAME, blobKey);
+   }
+
+   @Test(dataProvider = "ignoreOnMacOSX")
+   public void testDeleteIntermediateDirectoryBlob() throws IOException {
+      String parentKey = TestUtils.createRandomBlobKey("a/b/c/directory-", "/");
+      String childKey = TestUtils.createRandomBlobKey(parentKey + "directory-", "/");
+      storageStrategy.putBlob(CONTAINER_NAME, storageStrategy.newBlob(parentKey));
+      storageStrategy.putBlob(CONTAINER_NAME, storageStrategy.newBlob(childKey));
+
+      storageStrategy.removeBlob(CONTAINER_NAME, parentKey);
+      Uninterruptibles.sleepUninterruptibly(1, TimeUnit.SECONDS);
+      assertFalse(storageStrategy.blobExists(CONTAINER_NAME, parentKey));
+      assertTrue(storageStrategy.blobExists(CONTAINER_NAME, childKey));
+   }
+
    public void testWritePayloadOnFile() throws IOException {
       String blobKey = TestUtils.createRandomBlobKey("writePayload-", ".img");
       File sourceFile = TestUtils.getImageForBlobPayload();
@@ -415,7 +530,7 @@ public class FilesystemStorageStrategyImplTest {
                   public BlobBuilder get() {
                      return new BlobBuilderImpl();
                   }
-               }, absoluteBasePath, new FilesystemContainerNameValidatorImpl(), new FilesystemBlobKeyValidatorImpl());
+               }, absoluteBasePath, false, new FilesystemContainerNameValidatorImpl(), new FilesystemBlobKeyValidatorImpl(), defaultLocation);
       TestUtils.cleanDirectoryContent(absoluteContainerPath);
 
       String blobKey;
@@ -491,8 +606,8 @@ public class FilesystemStorageStrategyImplTest {
       Set<String> createBlobKeys = TestUtils.createBlobsInContainer(CONTAINER_NAME, new String[] {
                TestUtils.createRandomBlobKey("GetBlobKeys-", ".jpg"),
                TestUtils.createRandomBlobKey("GetBlobKeys-", ".jpg"),
-               TestUtils.createRandomBlobKey("563" + FS + "g3sx2" + FS + "removeBlob-", ".jpg"),
-               TestUtils.createRandomBlobKey("563" + FS + "g3sx2" + FS + "removeBlob-", ".jpg") });
+               TestUtils.createRandomBlobKey("563" + "/" + "g3sx2" + "/" + "removeBlob-", ".jpg"),
+               TestUtils.createRandomBlobKey("563" + "/" + "g3sx2" + "/" + "removeBlob-", ".jpg") });
       storageStrategy.getBlobKeysInsideContainer(CONTAINER_NAME);
 
       List<String> retrievedBlobKeys = Lists.newArrayList();
@@ -528,10 +643,8 @@ public class FilesystemStorageStrategyImplTest {
       }
    }
 
+   @Test(dataProvider = "ignoreOnMacOSX")
    public void testOverwriteBlobMetadata() throws Exception {
-      if (!getFileStore(Paths.get(TestUtils.TARGET_BASE_DIR)).supportsFileAttributeView(UserDefinedFileAttributeView.class)) {
-         throw new SkipException("Filesystem does not support xattr");
-      }
       String blobKey = TestUtils.createRandomBlobKey("writePayload-", ".img");
 
       // write blob
@@ -551,17 +664,43 @@ public class FilesystemStorageStrategyImplTest {
             .payload(randomByteSource().slice(0, 1024))
             // no metadata
             .build();
+      Uninterruptibles.sleepUninterruptibly(1, TimeUnit.SECONDS);
       storageStrategy.putBlob(CONTAINER_NAME, blob);
 
       blob = storageStrategy.getBlob(CONTAINER_NAME, blobKey);
       assertFalse(blob.getMetadata().getUserMetadata().containsKey("key1"));
    }
 
+   @Test
+   public void testPutIncorrectContentLength() throws Exception {
+      Blob blob = new BlobBuilderImpl()
+            .name("key")
+            .payload(randomByteSource().slice(0, 1024))
+            .contentLength(512)
+            .build();
+      try {
+         storageStrategy.putBlob(CONTAINER_NAME, blob);
+         Fail.failBecauseExceptionWasNotThrown(IOException.class);
+      } catch (IOException ioe) {
+         // expected
+      }
+   }
+
+   @Test
+   public void testDeletingInvalidPathFileEndsNormally() {
+      String invalidPathBlobKey = "A<!:!@#$%^&*?]8 /\0";
+      try {
+         storageStrategy.removeBlob(CONTAINER_NAME, invalidPathBlobKey);
+      } catch (InvalidPathException ipe) {
+         fail("Deleting an invalid path ended with an InvalidPathException.", ipe);
+      }
+   }
+
    // ---------------------------------------------------------- Private methods
 
    /**
     * Calculates an absolute directory path that depends on operative system
-    * 
+    *
     * @return
     */
    private String getAbsoluteDirectory() throws IOException {
@@ -571,4 +710,9 @@ public class FilesystemStorageStrategyImplTest {
       return tempAbsolutePath;
    }
 
+   @DataProvider
+   public Object[][] ignoreOnMacOSX() {
+        return isMacOSX() ? NO_INVOCATIONS
+                : SINGLE_NO_ARG_INVOCATION;
+   }
 }

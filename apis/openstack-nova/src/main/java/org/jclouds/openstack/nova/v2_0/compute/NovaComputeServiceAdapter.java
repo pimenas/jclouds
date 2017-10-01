@@ -21,8 +21,12 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.Iterables.contains;
 import static com.google.common.collect.Iterables.filter;
 import static com.google.common.collect.Iterables.transform;
+import static java.lang.String.format;
+import static org.jclouds.compute.config.ComputeServiceProperties.TIMEOUT_NODE_RUNNING;
+import static org.jclouds.compute.config.ComputeServiceProperties.TIMEOUT_NODE_TERMINATED;
 import static org.jclouds.compute.util.ComputeServiceUtils.metadataAndTagsAsCommaDelimitedValue;
 
+import java.util.Map;
 import java.util.Set;
 
 import javax.annotation.Resource;
@@ -37,31 +41,30 @@ import org.jclouds.domain.LoginCredentials;
 import org.jclouds.location.Region;
 import org.jclouds.logging.Logger;
 import org.jclouds.openstack.nova.v2_0.NovaApi;
+import org.jclouds.openstack.nova.v2_0.compute.functions.CleanupResources;
 import org.jclouds.openstack.nova.v2_0.compute.functions.RemoveFloatingIpFromNodeAndDeallocate;
 import org.jclouds.openstack.nova.v2_0.compute.options.NovaTemplateOptions;
 import org.jclouds.openstack.nova.v2_0.compute.strategy.ApplyNovaTemplateOptionsCreateNodesWithGroupEncodedIntoNameThenAddToSet;
 import org.jclouds.openstack.nova.v2_0.domain.Flavor;
 import org.jclouds.openstack.nova.v2_0.domain.Image;
-import org.jclouds.openstack.nova.v2_0.domain.KeyPair;
 import org.jclouds.openstack.nova.v2_0.domain.RebootType;
 import org.jclouds.openstack.nova.v2_0.domain.Server;
 import org.jclouds.openstack.nova.v2_0.domain.ServerCreated;
 import org.jclouds.openstack.nova.v2_0.domain.regionscoped.FlavorInRegion;
 import org.jclouds.openstack.nova.v2_0.domain.regionscoped.ImageInRegion;
 import org.jclouds.openstack.nova.v2_0.domain.regionscoped.RegionAndId;
-import org.jclouds.openstack.nova.v2_0.domain.regionscoped.RegionAndName;
 import org.jclouds.openstack.nova.v2_0.domain.regionscoped.ServerInRegion;
 import org.jclouds.openstack.nova.v2_0.options.CreateServerOptions;
 import org.jclouds.openstack.nova.v2_0.predicates.ImagePredicates;
 
 import com.google.common.base.Function;
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
+import com.google.common.base.Splitter;
 import com.google.common.base.Supplier;
-import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
+import com.google.common.collect.Sets;
 
 /**
  * The adapter used by the NovaComputeServiceContextModule to interface the nova-specific domain
@@ -77,17 +80,23 @@ public class NovaComputeServiceAdapter implements
    protected final NovaApi novaApi;
    protected final Supplier<Set<String>> regionIds;
    protected final RemoveFloatingIpFromNodeAndDeallocate removeFloatingIpFromNodeAndDeallocate;
-   protected final LoadingCache<RegionAndName, KeyPair> keyPairCache;
+   private final Predicate<RegionAndId> serverRunningPredicate;
+   private final Predicate<RegionAndId> serverTerminatedPredicate;
+   private final CleanupResources cleanupResources;
 
    @Inject
    public NovaComputeServiceAdapter(NovaApi novaApi, @Region Supplier<Set<String>> regionIds,
-            RemoveFloatingIpFromNodeAndDeallocate removeFloatingIpFromNodeAndDeallocate,
-            LoadingCache<RegionAndName, KeyPair> keyPairCache) {
+                                    RemoveFloatingIpFromNodeAndDeallocate removeFloatingIpFromNodeAndDeallocate,
+                                    @Named(TIMEOUT_NODE_RUNNING) Predicate<RegionAndId> serverRunningPredicate,
+                                    @Named(TIMEOUT_NODE_TERMINATED) Predicate<RegionAndId> serverTerminatedPredicate,
+                                    CleanupResources cleanupResources) {
       this.novaApi = checkNotNull(novaApi, "novaApi");
       this.regionIds = checkNotNull(regionIds, "regionIds");
       this.removeFloatingIpFromNodeAndDeallocate = checkNotNull(removeFloatingIpFromNodeAndDeallocate,
                "removeFloatingIpFromNodeAndDeallocate");
-      this.keyPairCache = checkNotNull(keyPairCache, "keyPairCache");
+      this.serverRunningPredicate = serverRunningPredicate;
+      this.serverTerminatedPredicate = serverTerminatedPredicate;
+      this.cleanupResources = cleanupResources;
    }
 
    /**
@@ -98,18 +107,20 @@ public class NovaComputeServiceAdapter implements
    @Override
    public NodeAndInitialCredentials<ServerInRegion> createNodeWithGroupEncodedIntoName(String group, String name,
             Template template) {
-
-      LoginCredentials.Builder credentialsBuilder = LoginCredentials.builder();
+      final String regionId = template.getLocation().getId();
+      String imageId = template.getImage().getProviderId();
+      String flavorId = template.getHardware().getProviderId();
       NovaTemplateOptions templateOptions = template.getOptions().as(NovaTemplateOptions.class);
 
       CreateServerOptions options = new CreateServerOptions();
-      options.metadata(metadataAndTagsAsCommaDelimitedValue(template.getOptions()));
-      if (!templateOptions.getGroups().isEmpty())
-         options.securityGroupNames(templateOptions.getGroups());
+      Map<String, String> metadataAndTagsAsCommaDelimitedValue = metadataAndTagsAsCommaDelimitedValue(template.getOptions());
+      options.metadata(metadataAndTagsAsCommaDelimitedValue);
+      if (!templateOptions.getGroups().isEmpty()) options.securityGroupNames(templateOptions.getGroups());
       options.userData(templateOptions.getUserData());
       options.diskConfig(templateOptions.getDiskConfig());
       options.configDrive(templateOptions.getConfigDrive());
       options.availabilityZone(templateOptions.getAvailabilityZone());
+      
       if (templateOptions.getNovaNetworks() != null) {
          options.novaNetworks(templateOptions.getNovaNetworks());
       }
@@ -117,34 +128,37 @@ public class NovaComputeServiceAdapter implements
          options.networks(templateOptions.getNetworks());
       }
 
-      Optional<String> privateKey = Optional.absent();
       if (templateOptions.getKeyPairName() != null) {
          options.keyPairName(templateOptions.getKeyPairName());
-         KeyPair keyPair = keyPairCache.getIfPresent(RegionAndName.fromRegionAndName(template.getLocation().getId(), templateOptions.getKeyPairName()));
-         if (keyPair != null && keyPair.getPrivateKey() != null) {
-            privateKey = Optional.of(keyPair.getPrivateKey());
-            credentialsBuilder.privateKey(privateKey.get());
-         }
       }
-
-      String regionId = template.getLocation().getId();
-      String imageId = template.getImage().getProviderId();
-      String flavorId = template.getHardware().getProviderId();
-
+      
       logger.debug(">> creating new server region(%s) name(%s) image(%s) flavor(%s) options(%s)", regionId, name, imageId, flavorId, options);
-      ServerCreated lightweightServer = novaApi.getServerApi(regionId).create(name, imageId, flavorId, options);
+      final ServerCreated lightweightServer = novaApi.getServerApi(regionId).create(name, imageId, flavorId, options);
+      if (!serverRunningPredicate.apply(RegionAndId.fromRegionAndId(regionId, lightweightServer.getId()))) {
+         final String message = format("Server %s was not created within %sms. The resources created for it will be destroyed", name, "30 * 60");
+         logger.warn(message);
+         String tagString = metadataAndTagsAsCommaDelimitedValue.get("jclouds_tags");
+         Set<String> tags = Sets.newHashSet(Splitter.on(',').split(tagString));
+         cleanupResources.removeSecurityGroupCreatedByJcloudsAndInvalidateCache(regionId, tags);
+         throw new IllegalStateException(message);
+      }
+      logger.trace("<< server(%s)", lightweightServer.getId());
+
       Server server = novaApi.getServerApi(regionId).get(lightweightServer.getId());
-
-      logger.trace("<< server(%s)", server.getId());
-
       ServerInRegion serverInRegion = new ServerInRegion(server, regionId);
-      if (!privateKey.isPresent() && lightweightServer.getAdminPass().isPresent())
+
+      LoginCredentials.Builder credentialsBuilder = LoginCredentials.builder();
+      if (templateOptions.getLoginPrivateKey() != null) {
+         credentialsBuilder.privateKey(templateOptions.getLoginPrivateKey());
+      } 
+      if (lightweightServer.getAdminPass().isPresent()) {
          credentialsBuilder.password(lightweightServer.getAdminPass().get());
+      }
       return new NodeAndInitialCredentials<ServerInRegion>(serverInRegion, serverInRegion.slashEncode(), credentialsBuilder
                .build());
    }
 
-   @Override
+  @Override
    public Iterable<FlavorInRegion> listHardwareProfiles() {
       Builder<FlavorInRegion> builder = ImmutableSet.builder();
       for (final String regionId : regionIds.get()) {
@@ -249,14 +263,8 @@ public class NovaComputeServiceAdapter implements
    @Override
    public void destroyNode(String id) {
       RegionAndId regionAndId = RegionAndId.fromSlashEncoded(id);
-      if (novaApi.getFloatingIPApi(regionAndId.getRegion()).isPresent()) {
-         try {
-            removeFloatingIpFromNodeAndDeallocate.apply(regionAndId);
-         } catch (RuntimeException e) {
-            logger.warn(e, "<< error removing and deallocating ip from node(%s): %s", id, e.getMessage());
-         }
-      }
       novaApi.getServerApi(regionAndId.getRegion()).delete(regionAndId.getId());
+      checkState(serverTerminatedPredicate.apply(regionAndId), "server was not destroyed in the configured timeout");
    }
 
    @Override

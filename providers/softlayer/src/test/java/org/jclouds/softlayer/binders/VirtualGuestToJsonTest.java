@@ -25,9 +25,11 @@ import org.jclouds.softlayer.domain.Datacenter;
 import org.jclouds.softlayer.domain.OperatingSystem;
 import org.jclouds.softlayer.domain.VirtualGuest;
 import org.jclouds.softlayer.domain.VirtualGuestBlockDeviceTemplateGroup;
+import org.jclouds.softlayer.domain.VirtualGuestNetworkComponent;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.gson.Gson;
 
 @Test(groups = "unit", testName = "VirtualGuestToJsonTest")
@@ -56,34 +58,20 @@ public class VirtualGuestToJsonTest {
                       .operatingSystemReferenceCode("UBUNTU_12_64")
                       .build())
               .localDiskFlag(true)
+              .networkComponents(ImmutableSet.<VirtualGuestNetworkComponent>of())
               .build();
 
       request = binder.bindToRequest(request, virtualGuestWithOS);
 
-      assertEquals(request.getPayload().getRawContent(),
-                     "{" +
-                      "\"parameters\":[" +
-                      "{" +
-                      "\"hostname\":\"hostname\"," +
-                      "\"domain\":\"domain\"," +
-                      "\"startCpus\":1," +
-                      "\"maxMemory\":1024," +
-                      "\"hourlyBillingFlag\":true," +
-                      "\"operatingSystemReferenceCode\":\"UBUNTU_12_64\"," +
-                      "\"localDiskFlag\":true," +
-                      "\"datacenter\":{" +
-                      "\"name\":\"datacenterName\"" +
-                      "}" +
-                      "}" +
-                      "]" +
-                      "}");
+      assertEquals(request.getPayload().getRawContent(), "{" +
+              "\"parameters\":[{\"hostname\":\"hostname\",\"domain\":\"domain\",\"startCpus\":1,\"maxMemory\":1024,\"hourlyBillingFlag\":false,\"localDiskFlag\":true,\"dedicatedAccountHostOnlyFlag\":false,\"privateNetworkOnlyFlag\":false,\"operatingSystemReferenceCode\":\"UBUNTU_12_64\",\"datacenter\":{\"name\":\"datacenterName\"}}]}");
    }
 
    @Test
    public void testVirtualGuestWithVirtualGuestBlockDeviceTemplateGroup() {
       HttpRequest request = HttpRequest.builder().method("POST").endpoint("https://api.softlayer.com/rest/v3/SoftLayer_Virtual_Guest").build();
       VirtualGuestToJson binder = new VirtualGuestToJson(json);
-      VirtualGuest virtualGuestWithOS = VirtualGuest.builder()
+      VirtualGuest virtualGuestWithVirtualGuestBlockDeviceTemplateGroup = VirtualGuest.builder()
               .hostname("hostname")
               .domain("domain")
               .startCpus(1)
@@ -95,28 +83,23 @@ public class VirtualGuestToJsonTest {
                       .globalIdentifier("ffaafa98-4b4a-4fa7-b9f7-b1bad5ec50f0")
                       .build())
               .localDiskFlag(true)
+              .networkComponents(ImmutableSet.<VirtualGuestNetworkComponent>of())
               .build();
 
-      request = binder.bindToRequest(request, virtualGuestWithOS);
+      request = binder.bindToRequest(request, virtualGuestWithVirtualGuestBlockDeviceTemplateGroup);
 
-      assertEquals(request.getPayload().getRawContent(),
-              "{" +
+      assertEquals(request.getPayload().getRawContent(), "{" +
               "\"parameters\":[{" +
               "\"hostname\":\"hostname\"," +
               "\"domain\":\"domain\"," +
               "\"startCpus\":1," +
               "\"maxMemory\":1024," +
-              "\"hourlyBillingFlag\":true," +
-              "\"blockDeviceTemplateGroup\":{" +
-              "\"globalIdentifier\":\"ffaafa98-4b4a-4fa7-b9f7-b1bad5ec50f0\"" +
-              "}," +
-               "\"localDiskFlag\":true," +
-               "\"datacenter\":{" +
-               "\"name\":\"datacenterName\"" +
-               "}" +
-               "}" +
-               "]" +
-               "}");
+              "\"hourlyBillingFlag\":false," +
+              "\"localDiskFlag\":true," +
+              "\"dedicatedAccountHostOnlyFlag\":false," +
+              "\"privateNetworkOnlyFlag\":false," +
+              "\"blockDeviceTemplateGroup\":{\"globalIdentifier\":\"ffaafa98-4b4a-4fa7-b9f7-b1bad5ec50f0\"}," +
+              "\"datacenter\":{\"name\":\"datacenterName\"}}]}");
    }
 
 }

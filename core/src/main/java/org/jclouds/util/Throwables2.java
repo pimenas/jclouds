@@ -27,6 +27,7 @@ import org.jclouds.concurrent.TransformParallelException;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.rest.InsufficientResourcesException;
+import org.jclouds.rest.RateLimitExceededException;
 import org.jclouds.rest.ResourceAlreadyExistsException;
 import org.jclouds.rest.ResourceNotFoundException;
 
@@ -120,9 +121,7 @@ public class Throwables2 {
       AuthorizationException aex = getFirstThrowableOfType(e, AuthorizationException.class);
       if (aex != null)
          throw aex;
-      propagate(e);
-      assert false : "exception should have propagated " + e;
-      return null;
+      throw propagate(e);
    }
 
    // Note that ordering matters to propagateIfPossible.
@@ -135,6 +134,7 @@ public class Throwables2 {
          ResourceAlreadyExistsException.class,
          ResourceNotFoundException.class,
          InsufficientResourcesException.class,
+         RateLimitExceededException.class,
          HttpResponseException.class);
 
    // Note this needs to be kept up-to-date with all top-level exceptions jclouds works against

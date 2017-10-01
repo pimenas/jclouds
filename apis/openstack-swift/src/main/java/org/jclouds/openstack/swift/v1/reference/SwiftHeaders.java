@@ -49,6 +49,7 @@ public final class SwiftHeaders {
    public static final String CONTAINER_READ = "X-Container-Read";
    public static final String CONTAINER_WRITE = "X-Container-Write";
    public static final String CONTAINER_ACL_ANYBODY_READ = ".r:*,.rlistings";
+   public static final String CONTAINER_ACL_PRIVATE = "";
    
    // CORS
    public static final String CONTAINER_ACCESS_CONTROL_ALLOW_ORIGIN = CONTAINER_METADATA_PREFIX + "Access-Control-Allow-Origin";
@@ -70,6 +71,7 @@ public final class SwiftHeaders {
    public static final String CONTAINER_WEB_MODE = "X-Web-Mode";
 
    public static final String OBJECT_COPY_FROM = "X-Copy-From";
+   public static final String OBJECT_COPY_FRESH_METADATA = "X-Fresh-Metadata";
    public static final String OBJECT_DELETE_AFTER = "X-Delete-After";
    public static final String OBJECT_DELETE_AT = "X-Delete-At";
    public static final String OBJECT_MANIFEST = "X-Object-Manifest";

@@ -17,7 +17,6 @@
 package org.jclouds.openstack.swift.v1.features;
 
 import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
-import static org.jclouds.openstack.swift.v1.SwiftFallbacks.TrueOn404FalseOn409;
 
 import java.util.Map;
 
@@ -36,6 +35,7 @@ import org.jclouds.Fallbacks.FalseOnNotFoundOr404;
 import org.jclouds.Fallbacks.NullOnNotFoundOr404;
 import org.jclouds.javax.annotation.Nullable;
 import org.jclouds.openstack.keystone.v2_0.filters.AuthenticateRequest;
+import org.jclouds.openstack.swift.v1.SwiftFallbacks.TrueOn404FalseOn409;
 import org.jclouds.openstack.swift.v1.binders.BindMetadataToHeaders.BindContainerMetadataToHeaders;
 import org.jclouds.openstack.swift.v1.binders.BindMetadataToHeaders.BindRemoveContainerMetadataToHeaders;
 import org.jclouds.openstack.swift.v1.domain.Container;
@@ -46,6 +46,7 @@ import org.jclouds.openstack.swift.v1.options.ListContainerOptions;
 import org.jclouds.openstack.swift.v1.options.UpdateContainerOptions;
 import org.jclouds.rest.annotations.BinderParam;
 import org.jclouds.rest.annotations.Fallback;
+import org.jclouds.rest.annotations.QueryParams;
 import org.jclouds.rest.annotations.RequestFilters;
 import org.jclouds.rest.annotations.ResponseParser;
 
@@ -77,6 +78,7 @@ public interface ContainerApi {
    @Named("container:list")
    @GET
    @Fallback(EmptyFluentIterableOnNotFoundOr404.class)
+   @QueryParams(keys = "format", values = "json")
    FluentIterable<Container> list();
 
    /**
@@ -95,6 +97,7 @@ public interface ContainerApi {
    @Named("container:list")
    @GET
    @Fallback(EmptyFluentIterableOnNotFoundOr404.class)
+   @QueryParams(keys = "format", values = "json")
    FluentIterable<Container> list(ListContainerOptions options);
 
    /**
@@ -150,15 +153,11 @@ public interface ContainerApi {
     *           the container name corresponding to {@link Container#getName()}.
     * @param options
     *           the container options to update.
-    *
-    * @return {@code true} if the container metadata was successfully created or updated,
-    *         {@code false} if not.
     */
    @Named("container:update")
    @POST
    @Path("/{containerName}")
-   @Fallback(FalseOnNotFoundOr404.class)
-   boolean update(@PathParam("containerName") String containerName, UpdateContainerOptions options);
+   void update(@PathParam("containerName") String containerName, UpdateContainerOptions options);
 
    /**
     * Creates or updates the {@link Container} metadata.
@@ -167,15 +166,11 @@ public interface ContainerApi {
     *           the container name corresponding to {@link Container#getName()}.
     * @param metadata
     *           the container metadata to create or update.
-    *
-    * @return {@code true} if the container metadata was successfully created or updated,
-    *         {@code false} if not.
     */
    @Named("container:updateMetadata")
    @POST
    @Path("/{containerName}")
-   @Fallback(FalseOnNotFoundOr404.class)
-   boolean updateMetadata(@PathParam("containerName") String containerName,
+   void updateMetadata(@PathParam("containerName") String containerName,
          @BinderParam(BindContainerMetadataToHeaders.class) Map<String, String> metadata);
 
    /**

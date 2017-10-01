@@ -18,6 +18,7 @@ package org.jclouds.io;
 
 import static com.google.common.collect.Iterables.any;
 import static com.google.common.io.BaseEncoding.base64;
+import static com.google.common.net.HttpHeaders.CACHE_CONTROL;
 import static com.google.common.net.HttpHeaders.CONTENT_DISPOSITION;
 import static com.google.common.net.HttpHeaders.CONTENT_ENCODING;
 import static com.google.common.net.HttpHeaders.CONTENT_LANGUAGE;
@@ -27,6 +28,7 @@ import static com.google.common.net.HttpHeaders.CONTENT_TYPE;
 import static com.google.common.net.HttpHeaders.EXPIRES;
 
 import java.util.Date;
+import java.util.List;
 import java.util.Map.Entry;
 
 import javax.annotation.Resource;
@@ -37,6 +39,7 @@ import org.jclouds.io.ContentMetadataCodec.DefaultContentMetadataCodec;
 import org.jclouds.logging.Logger;
 
 import com.google.common.base.Predicate;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableMultimap.Builder;
 import com.google.common.collect.Multimap;
@@ -72,19 +75,27 @@ public interface ContentMetadataCodec {
       protected Logger logger = Logger.NULL;
 
       private final DateCodec httpExpiresDateCodec;
+      private final List<DateCodec> httpExpiresDateDecoders;
 
       @Inject
       public DefaultContentMetadataCodec(DateCodecFactory dateCodecs) {
          httpExpiresDateCodec = dateCodecs.rfc1123();
+         httpExpiresDateDecoders = ImmutableList.of(dateCodecs.rfc1123(), dateCodecs.asctime());
       }
-      
+
       protected DateCodec getExpiresDateCodec() {
          return httpExpiresDateCodec;
       }
-      
+
+      protected List<DateCodec> getExpiresDateDecoders() {
+         return httpExpiresDateDecoders;
+      }
+
       @Override
       public Multimap<String, String> toHeaders(ContentMetadata md) {
          Builder<String, String> builder = ImmutableMultimap.builder();
+         if (md.getCacheControl() != null)
+            builder.put(CACHE_CONTROL, md.getCacheControl());
          if (md.getContentType() != null)
             builder.put(CONTENT_TYPE, md.getContentType());
          if (md.getContentDisposition() != null)
@@ -111,7 +122,9 @@ public interface ContentMetadataCodec {
             }
          });
          for (Entry<String, String> header : headers.entries()) {
-            if (!chunked && CONTENT_LENGTH.equalsIgnoreCase(header.getKey())) {
+            if (CACHE_CONTROL.equalsIgnoreCase(header.getKey())) {
+               contentMetadata.setCacheControl(header.getValue());
+            } else if (!chunked && CONTENT_LENGTH.equalsIgnoreCase(header.getKey())) {
                contentMetadata.setContentLength(Long.valueOf(header.getValue()));
             } else if (CONTENT_MD5.equalsIgnoreCase(header.getKey())) {
                contentMetadata.setContentMD5(base64().decode(header.getValue()));
@@ -129,14 +142,31 @@ public interface ContentMetadataCodec {
          }
       }
       
+      /**
+       * Parses the date from the given Expires header.
+       * <p>
+       * According to the RFC, dates should always come in RFC-1123 format.
+       * However, clients should also support older and deprecated formats for
+       * compatibility, so this method will try to parse an RFC-1123 date, and
+       * fallback to the ANSI C format.
+       * 
+       * @see https://tools.ietf.org/html/rfc2616#section-3.3
+       */
       public Date parseExpires(String expires) {
-         try {
-            return (expires != null) ? getExpiresDateCodec().toDate(expires) : null;
-         } catch (IllegalArgumentException e) {
-            logger.debug("Invalid Expires header (%s); should be in RFC-1123 format; treating as already expired: %s",
-                  expires, e.getMessage());
-            return new Date(0);
+         if (expires == null)
+            return null;
+
+         for (DateCodec decoder : getExpiresDateDecoders()) {
+            try {
+               return decoder.toDate(expires);
+            } catch (IllegalArgumentException ex) {
+               logger.trace("Expires header (%s) is not in the expected %s format", expires, decoder);
+               // Continue trying the other decoders
+            }
          }
+
+         logger.debug("Invalid Expires header (%s); should be in RFC-1123 format; treating as already expired", expires);
+         return new Date(0);
       }
    }
 }

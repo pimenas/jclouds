@@ -16,22 +16,24 @@
  */
 package org.jclouds.chef;
 
-import com.google.common.io.InputSupplier;
-import com.google.inject.ImplementedBy;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.concurrent.ExecutorService;
+
+import org.jclouds.chef.config.ChefProperties;
 import org.jclouds.chef.domain.BootstrapConfig;
 import org.jclouds.chef.domain.Client;
 import org.jclouds.chef.domain.CookbookVersion;
 import org.jclouds.chef.domain.Environment;
 import org.jclouds.chef.domain.Node;
 import org.jclouds.chef.internal.BaseChefService;
-import org.jclouds.domain.JsonBall;
+import org.jclouds.chef.util.ChefUtils;
+import org.jclouds.javax.annotation.Nullable;
+import org.jclouds.ohai.config.OhaiModule;
 import org.jclouds.rest.annotations.SinceApiVersion;
 import org.jclouds.scriptbuilder.domain.Statement;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.List;
-import java.util.concurrent.ExecutorService;
+import com.google.inject.ImplementedBy;
 
 /**
  * Provides high level Chef operations.
@@ -39,32 +41,25 @@ import java.util.concurrent.ExecutorService;
 @ImplementedBy(BaseChefService.class)
 public interface ChefService {
 
-   /**
-    * Gets the context that created this service.
-    *
-    * @return The context that created the service.
-    */
-   ChefContext getContext();
-
    // Crypto
 
    /**
     * Encrypts the given input stream.
     *
-    * @param supplier The input stream to encrypt.
+    * @param input The input stream to encrypt.
     * @return The encrypted bytes for the given input stream.
     * @throws IOException If there is an error reading from the input stream.
     */
-   byte[] encrypt(InputSupplier<? extends InputStream> supplier) throws IOException;
+   byte[] encrypt(InputStream input) throws IOException;
 
    /**
     * Decrypts the given input stream.
     *
-    * @param supplier The input stream to decrypt.
+    * @param input The input stream to decrypt.
     * @return The decrypted bytes for the given input stream.
     * @throws IOException If there is an error reading from the input stream.
     */
-   byte[] decrypt(InputSupplier<? extends InputStream> supplier) throws IOException;
+   byte[] decrypt(InputStream input) throws IOException;
 
    // Bootstrap
 
@@ -79,6 +74,17 @@ public interface ChefService {
    Statement createBootstrapScriptForGroup(String group);
 
    /**
+    * Creates all steps necessary to bootstrap the node.
+    *
+    * @param group corresponds to a configured
+    *              {@link ChefProperties#CHEF_BOOTSTRAP_DATABAG} data bag where
+    *              run_list and other information are stored.
+    * @param nodeName The name of the node to create.
+    * @return The script used to bootstrap the node.
+    */
+   Statement createBootstrapScriptForGroup(String group, @Nullable String nodeName);
+
+   /**
     * Configures how the nodes of a certain group will be bootstrapped
     *
     * @param group           The group where the given bootstrap configuration will be
@@ -89,23 +95,12 @@ public interface ChefService {
    void updateBootstrapConfigForGroup(String group, BootstrapConfig bootstrapConfig);
 
    /**
-    * Gets the run list for the given group.
-    *
-    * @param The group to get the configured run list for.
-    * @return run list for all nodes bootstrapped with a certain group
-    */
-   List<String> getRunListForGroup(String group);
-
-   /**
     * Gets the bootstrap configuration for a given group.
-    * <p/>
-    * The bootstrap configuration is a Json object containing the run list and
-    * the configured attributes.
     *
     * @param group The name of the group.
     * @return The bootstrap configuration for the given group.
     */
-   JsonBall getBootstrapConfigForGroup(String group);
+   BootstrapConfig getBootstrapConfigForGroup(String group);
 
    // Nodes / Clients
 

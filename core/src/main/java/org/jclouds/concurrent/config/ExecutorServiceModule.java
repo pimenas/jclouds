@@ -20,6 +20,9 @@ import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator
 import static org.jclouds.Constants.PROPERTY_USER_THREADS;
 import static org.jclouds.concurrent.DynamicExecutors.newScalingThreadPool;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
@@ -53,6 +56,60 @@ import com.google.inject.Provides;
  */
 @ConfiguresExecutorService
 public class ExecutorServiceModule extends AbstractModule {
+
+   private static final Method CREATE_STL;
+   private static final Constructor<SimpleTimeLimiter> CONSTRUCT_STL;
+   static {
+      Method create = null;
+      Constructor ctor = null;
+      try {
+         create = SimpleTimeLimiter.class.getDeclaredMethod("create", ExecutorService.class);
+      } catch (NoSuchMethodException nsme) {
+         try {
+            ctor = SimpleTimeLimiter.class.getConstructor(ExecutorService.class);
+         } catch (NoSuchMethodException nsme2) {
+            throw new UnsupportedOperationException(
+               "Can't find SimpleTimeLimiter creator or constructor taking ExecutorService", nsme2);
+         }
+      }
+      CREATE_STL = create;
+      CONSTRUCT_STL = ctor;
+   }
+
+   /**
+    * Reflective creation of SimpleTimeLimiter to allow compatibility with Guava 23.0.
+    * SimpleTimeLimiter.create(ExecutorService) was introduced in Guava 22.0 to replace
+    * the SimpleTimeLimiter(ExecutorService) constructor, which was deprecated in
+    * Guava 22.0 and removed in Guava 23.0. The method is public to allow test methods
+    * in other packages to use it.
+    * @param executorService the execution service to use when running time-limited tasks
+    * @return a new instance of SimpleTimeLimiter that uses executorService
+    */
+   public static SimpleTimeLimiter createSimpleTimeLimiter(ExecutorService executorService) {
+      try {
+         if (CREATE_STL != null) {
+            return (SimpleTimeLimiter) CREATE_STL.invoke(null, executorService);
+         } else if (CONSTRUCT_STL != null) {
+            return CONSTRUCT_STL.newInstance(executorService);
+         }
+         throw new UnsupportedOperationException(
+            "Can't find SimpleTimeLimiter creator or constructor taking ExecutorService");
+      } catch (IllegalAccessException iae) {
+         throw new UnsupportedOperationException("Can't access SimpleTimeLimiter method/ctor", iae);
+      } catch (InstantiationException ie) {
+         throw new UnsupportedOperationException("Can't construct SimpleTimeLimiter", ie);
+      } catch (InvocationTargetException ite) {
+         Throwable throwable = ite.getCause();
+         if (throwable instanceof RuntimeException) {
+            throw (RuntimeException) throwable;
+         }
+         if (throwable instanceof Error) {
+            throw (Error) throwable;
+         }
+         throw new UnsupportedOperationException(
+            "Checked exception thrown while creating SimpleTimeLimiter", throwable);
+      }
+   }
 
    static final class ShutdownExecutorOnClose implements Closeable {
       @Resource
@@ -112,14 +169,14 @@ public class ExecutorServiceModule extends AbstractModule {
 
    @Provides
    @Singleton
-   TimeLimiter timeLimiter(@Named(PROPERTY_USER_THREADS) ListeningExecutorService userExecutor) {
-      return new SimpleTimeLimiter(userExecutor);
+   final TimeLimiter timeLimiter(@Named(PROPERTY_USER_THREADS) ListeningExecutorService userExecutor) {
+      return createSimpleTimeLimiter(userExecutor);
    }
 
    @Provides
    @Singleton
    @Named(PROPERTY_USER_THREADS)
-   ListeningExecutorService provideListeningUserExecutorService(@Named(PROPERTY_USER_THREADS) int count, Closer closer) { // NO_UCD
+   final ListeningExecutorService provideListeningUserExecutorService(@Named(PROPERTY_USER_THREADS) int count, Closer closer) { // NO_UCD
       if (userExecutorFromConstructor != null)
          return userExecutorFromConstructor;
       return shutdownOnClose(WithSubmissionTrace.wrap(newThreadPoolNamed("user thread %d", count)), closer);
@@ -128,7 +185,7 @@ public class ExecutorServiceModule extends AbstractModule {
    @Provides
    @Singleton
    @Named(PROPERTY_USER_THREADS)
-   ExecutorService provideUserExecutorService(@Named(PROPERTY_USER_THREADS) ListeningExecutorService in) { // NO_UCD
+   final ExecutorService provideUserExecutorService(@Named(PROPERTY_USER_THREADS) ListeningExecutorService in) { // NO_UCD
       return in;
    }
 

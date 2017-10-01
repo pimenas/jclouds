@@ -21,8 +21,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 import java.beans.ConstructorProperties;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 
 /**
  * The connection throttling feature imposes limits on the number of connections per IP address to help mitigate 

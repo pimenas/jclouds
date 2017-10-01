@@ -40,26 +40,16 @@ import org.jclouds.rest.annotations.RequestFilters;
 import org.jclouds.rest.annotations.SelectJson;
 import org.jclouds.rest.annotations.WrapWith;
 
-import com.google.common.annotations.Beta;
 import com.google.common.collect.FluentIterable;
 
 /**
  * Provides access to the OpenStack Compute (Nova) Volume Attachments Extension API.
  *
- * This API strictly handles attaching Volumes to Servers. To create and manage Volumes you need to use one of the
- * following APIs:
- *
- * 1. The Cinder API
- *    If your OpenStack deployment is Folsom or later and it supports the Cinder block storage service, use this API.
- *    @see org.jclouds.openstack.cinder.v1.features.VolumeApi
- *
- * 2. The nova-volume API
- *    If your OpenStack deployment is Essex or earlier and it supports the nova-volume extension, use this API.
- *    @see org.jclouds.openstack.nova.v2_0.extensions.VolumeApi
- *
+ * This API strictly handles attaching Volumes to Servers. To create and manage Volumes you need to use the Cinder API.
+ * @see org.jclouds.openstack.cinder.v1.features.VolumeApi
  */
-@Beta
-@Extension(of = ServiceType.COMPUTE, namespace = ExtensionNamespaces.VOLUME_ATTACHMENTS)
+@Extension(of = ServiceType.COMPUTE, namespace = ExtensionNamespaces.VOLUME_ATTACHMENTS,
+      name = ExtensionNames.VOLUME_ATTACHMENT, alias = ExtensionAliases.VOLUME_ATTACHMENT)
 @RequestFilters(AuthenticateRequest.class)
 @Consumes(MediaType.APPLICATION_JSON)
 @Path("/servers")

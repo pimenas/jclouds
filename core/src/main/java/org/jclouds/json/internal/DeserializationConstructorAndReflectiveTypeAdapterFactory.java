@@ -22,6 +22,7 @@ import static org.jclouds.reflect.Reflection2.typeToken;
 
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Modifier;
 import java.util.List;
 import java.util.Map;
 
@@ -119,17 +120,28 @@ public final class DeserializationConstructorAndReflectiveTypeAdapterFactory imp
 
    public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
       com.google.common.reflect.TypeToken<T> token = typeToken(type.getType());
-      Invokable<T, T> deserializationCtor = constructorFieldNamingPolicy.getDeserializer(token);
+      Invokable<T, T> deserializationTarget = constructorFieldNamingPolicy.getDeserializer(token);
 
-      if (deserializationCtor == null) {
+      if (deserializationTarget == null) {
          return null; // allow GSON to choose the correct Adapter (can't simply return delegateFactory.create())
-      } else {
-         return new DeserializeIntoParameterizedConstructor<T>(delegateFactory.create(gson, type), deserializationCtor,
-               getParameterReaders(gson, deserializationCtor));
       }
+      // @AutoValue is SOURCE retention, which means it cannot be looked up at runtime.
+      // Assume abstract types built by static methods are AutoValue.
+      if (Modifier.isAbstract(type.getRawType().getModifiers()) && deserializationTarget.isStatic()) {
+         // Lookup the generated AutoValue class, whose fields must be read for serialization.
+         String packageName = type.getRawType().getPackage().getName();
+         String autoClassName = type.getRawType().getName().replace('$', '_')
+               .replace(packageName + ".", packageName + ".AutoValue_");
+         try {
+            type = (TypeToken<T>) TypeToken.get(type.getRawType().getClassLoader().loadClass(autoClassName));
+         } catch (ClassNotFoundException ignored) {
+         }
+      }
+      return new DeserializeIntoParameterizedConstructor<T>(delegateFactory.create(gson, type), deserializationTarget,
+            getParameterReaders(gson, deserializationTarget));
    }
 
-   private final class DeserializeIntoParameterizedConstructor<T> extends TypeAdapter<T> {
+   private static final class DeserializeIntoParameterizedConstructor<T> extends TypeAdapter<T> {
       private final TypeAdapter<T> serializer;
       private final Invokable<T, T> parameterizedCtor;
       private final Map<String, ParameterReader<?>> parameterReaders;
@@ -167,7 +179,7 @@ public final class DeserializationConstructorAndReflectiveTypeAdapterFactory imp
                empty = false;
                String name = in.nextName();
                ParameterReader<?> parameter = parameterReaders.get(name);
-               if (parameter == null) {
+               if (parameter == null || in.peek() == JsonToken.NULL) {
                   in.skipValue();
                } else {
                   Object value = parameter.read(in);

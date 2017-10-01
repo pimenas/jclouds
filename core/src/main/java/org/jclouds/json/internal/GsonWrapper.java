@@ -16,6 +16,8 @@
  */
 package org.jclouds.json.internal;
 
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.lang.reflect.Type;
 
 import javax.inject.Inject;
@@ -45,6 +47,17 @@ public class GsonWrapper extends ForwardingObject implements Json  {
    @Override
    public <T> T fromJson(String json, Class<T> classOfT) {
       return gson.fromJson(json, classOfT);
+   }
+   
+   @SuppressWarnings("unchecked")
+   @Override
+   public <T> T fromJson(InputStream json, Type type) {
+      return (T) gson.fromJson(new InputStreamReader(json), type);
+   }
+
+   @Override
+   public <T> T fromJson(InputStream json, Class<T> classOfT) {
+      return gson.fromJson(new InputStreamReader(json), classOfT);
    }
 
    @Override

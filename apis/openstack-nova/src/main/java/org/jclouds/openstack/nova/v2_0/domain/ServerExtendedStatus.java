@@ -23,8 +23,8 @@ import javax.inject.Named;
 import org.jclouds.javax.annotation.Nullable;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 
 /**
  * Additional attributes delivered by Extended Server Status extension (alias "OS-EXT-STS")
@@ -36,8 +36,6 @@ import com.google.common.base.Objects;
  * @see org.jclouds.openstack.nova.v1_1.extensions.ExtensionNamespaces#EXTENDED_STATUS (extended status?)
 */
 public class ServerExtendedStatus {
-
-   public static String PREFIX;
 
    public static Builder<?> builder() { 
       return new ConcreteBuilder();

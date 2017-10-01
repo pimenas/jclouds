@@ -26,8 +26,8 @@ import org.jclouds.compute.options.TemplateOptions;
 import org.jclouds.domain.Location;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 
 public class TemplateImpl implements Template {
 

@@ -27,7 +27,6 @@ import static org.testng.Assert.assertEquals;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import org.easymock.IArgumentMatcher;
@@ -158,12 +157,12 @@ public class StubComputeServiceIntegrationTest extends BaseComputeServiceLiveTes
 
             // run script without backgrounding (via predicate)
             client2.connect();
-            expect(client2.exec("hostname\n")).andReturn(new ExecResponse("stub-r\n", "", 0));
+            expect(client2.exec("hostname -s\n")).andReturn(new ExecResponse("stub-r\n", "", 0));
             client2.disconnect();
 
             // run script without backgrounding (via id)
             client2.connect();
-            expect(client2.exec("hostname\n")).andReturn(new ExecResponse("stub-r\n", "", 0));
+            expect(client2.exec("hostname -s\n")).andReturn(new ExecResponse("stub-r\n", "", 0));
             client2.disconnect();
 
             client2.connect();
@@ -304,8 +303,7 @@ public class StubComputeServiceIntegrationTest extends BaseComputeServiceLiveTes
                clientNew.disconnect();
 
                String startJetty = new StringBuilder()
-                  .append("cd /usr/local/jetty").append('\n')
-                  .append("nohup java -jar start.jar jetty.port=8080 > start.out 2> start.err < /dev/null &").append('\n')
+                  .append("JETTY_PORT=8080 nohup /usr/local/jetty/bin/jetty.sh start > start.log 2>&1 < /dev/null &").append('\n')
                   .append("test $? && sleep 1").append('\n').toString();
 
                clientNew.connect();
@@ -313,7 +311,7 @@ public class StubComputeServiceIntegrationTest extends BaseComputeServiceLiveTes
                clientNew.disconnect();
 
                clientNew.connect();
-               expect(clientNew.exec("cd /usr/local/jetty\n./bin/jetty.sh stop\n")).andReturn(EXEC_GOOD);
+               expect(clientNew.exec("/usr/local/jetty/bin/jetty.sh stop\n")).andReturn(EXEC_GOOD);
                clientNew.disconnect();
 
                clientNew.connect();
@@ -419,8 +417,8 @@ public class StubComputeServiceIntegrationTest extends BaseComputeServiceLiveTes
          if (o == null || !this.getClass().equals(o.getClass()))
             return false;
          PayloadEquals other = (PayloadEquals) o;
-         return this.expected == null && other.expected == null || this.expected != null
-                  && this.expected.equals(other.expected);
+         return (this.expected == null && other.expected == null) ||
+                (this.expected != null && this.expected.equals(other.expected));
       }
 
       @Override
@@ -452,10 +450,10 @@ public class StubComputeServiceIntegrationTest extends BaseComputeServiceLiveTes
    public void testAScriptExecutionAfterBootWithBasicTemplate() throws Exception {
       super.testAScriptExecutionAfterBootWithBasicTemplate();
    }
-   
+
    @Test(enabled = false)
    @Override
-   public void weCanCancelTasks(NodeMetadata node) throws InterruptedException, ExecutionException {
+   public void testWeCanCancelTasks() throws Exception {
       // not sure how to do multithreading in a mock so that tests can work
    }
 
@@ -533,6 +531,11 @@ public class StubComputeServiceIntegrationTest extends BaseComputeServiceLiveTes
    @Test(enabled = true, dependsOnMethods = { "testListNodes", "testGetNodesWithDetails", "testListNodesByIds" })
    public void testDestroyNodes() {
       super.testDestroyNodes();
+   }
+
+   @Override
+   protected void waitGracePeriodForDestroyedNodes() {
+      // Do not wait
    }
 
 }

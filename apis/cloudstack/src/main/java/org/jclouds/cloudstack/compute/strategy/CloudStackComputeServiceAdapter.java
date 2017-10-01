@@ -28,21 +28,30 @@ import static org.jclouds.cloudstack.predicates.TemplatePredicates.isReady;
 import static org.jclouds.cloudstack.predicates.ZonePredicates.supportsSecurityGroups;
 import static org.jclouds.ssh.SshKeys.fingerprintPrivateKey;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
 import javax.annotation.Resource;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
+import com.google.common.base.Predicate;
+import com.google.common.base.Supplier;
+import com.google.common.cache.LoadingCache;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSet.Builder;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
+import com.google.common.primitives.Ints;
 import org.jclouds.cloudstack.CloudStackApi;
 import org.jclouds.cloudstack.compute.options.CloudStackTemplateOptions;
 import org.jclouds.cloudstack.domain.AsyncCreateResponse;
 import org.jclouds.cloudstack.domain.Capabilities;
 import org.jclouds.cloudstack.domain.FirewallRule;
 import org.jclouds.cloudstack.domain.IPForwardingRule;
+import org.jclouds.cloudstack.domain.NIC;
 import org.jclouds.cloudstack.domain.Network;
 import org.jclouds.cloudstack.domain.NetworkType;
 import org.jclouds.cloudstack.domain.Project;
@@ -50,6 +59,7 @@ import org.jclouds.cloudstack.domain.PublicIPAddress;
 import org.jclouds.cloudstack.domain.SecurityGroup;
 import org.jclouds.cloudstack.domain.ServiceOffering;
 import org.jclouds.cloudstack.domain.SshKeyPair;
+import org.jclouds.cloudstack.domain.Tag;
 import org.jclouds.cloudstack.domain.Template;
 import org.jclouds.cloudstack.domain.VirtualMachine;
 import org.jclouds.cloudstack.domain.Zone;
@@ -60,25 +70,19 @@ import org.jclouds.cloudstack.functions.CreateFirewallRulesForIP;
 import org.jclouds.cloudstack.functions.CreatePortForwardingRulesForIP;
 import org.jclouds.cloudstack.functions.StaticNATVirtualMachineInNetwork;
 import org.jclouds.cloudstack.functions.StaticNATVirtualMachineInNetwork.Factory;
+import org.jclouds.cloudstack.options.CreateTagsOptions;
 import org.jclouds.cloudstack.options.DeployVirtualMachineOptions;
 import org.jclouds.cloudstack.options.ListFirewallRulesOptions;
 import org.jclouds.cloudstack.options.ListTemplatesOptions;
 import org.jclouds.cloudstack.strategy.BlockUntilJobCompletesAndReturnResult;
 import org.jclouds.collect.Memoized;
 import org.jclouds.compute.ComputeServiceAdapter;
+import org.jclouds.compute.config.GetLoginForProviderFromPropertiesAndStoreCredentialsOrReturnNull;
 import org.jclouds.compute.functions.GroupNamingConvention;
 import org.jclouds.compute.reference.ComputeServiceConstants;
 import org.jclouds.domain.Credentials;
 import org.jclouds.domain.LoginCredentials;
 import org.jclouds.logging.Logger;
-
-import com.google.common.base.Predicate;
-import com.google.common.base.Supplier;
-import com.google.common.cache.LoadingCache;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSet.Builder;
-import com.google.common.collect.Sets;
-import com.google.common.primitives.Ints;
 
 /**
  * defines the connection between the {@link CloudStackApi} implementation
@@ -107,6 +111,7 @@ public class CloudStackComputeServiceAdapter implements
    private final LoadingCache<ZoneAndName, SecurityGroup> securityGroupCache;
    private final LoadingCache<String, SshKeyPair> keyPairCache;
    private final GroupNamingConvention.Factory namingConvention;
+   private final GetLoginForProviderFromPropertiesAndStoreCredentialsOrReturnNull credentialsProvider;
 
    @Inject
    public CloudStackComputeServiceAdapter(CloudStackApi client, Predicate<String> jobComplete,
@@ -122,7 +127,8 @@ public class CloudStackComputeServiceAdapter implements
                                           Supplier<LoadingCache<String, Zone>> zoneIdToZone,
                                           LoadingCache<ZoneAndName, SecurityGroup> securityGroupCache,
                                           LoadingCache<String, SshKeyPair> keyPairCache,
-                                          GroupNamingConvention.Factory namingConvention) {
+                                          GroupNamingConvention.Factory namingConvention,
+                                          GetLoginForProviderFromPropertiesAndStoreCredentialsOrReturnNull credentialsProvider) {
       this.client = checkNotNull(client, "client");
       this.jobComplete = checkNotNull(jobComplete, "jobComplete");
       this.networkSupplier = checkNotNull(networkSupplier, "networkSupplier");
@@ -139,6 +145,7 @@ public class CloudStackComputeServiceAdapter implements
       this.optionsConverters = optionsConverters;
       this.zoneIdToZone = zoneIdToZone;
       this.namingConvention = namingConvention;
+      this.credentialsProvider = credentialsProvider;
    }
 
    @Override
@@ -178,6 +185,10 @@ public class CloudStackComputeServiceAdapter implements
          options.ipsToNetworks(templateOptions.getIpsToNetworks());
       }
 
+      if (templateOptions.getUserData() != null) {
+         options.userData(templateOptions.getUserData());
+      }
+
       if (templateOptions.getKeyPair() != null) {
          SshKeyPair keyPair = null;
          if (templateOptions.getLoginPrivateKey() != null) {
@@ -194,8 +205,7 @@ public class CloudStackComputeServiceAdapter implements
             options.keyPair(keyPair.getName());
          }
       } else if (templateOptions.shouldGenerateKeyPair()) {
-         SshKeyPair keyPair = keyPairCache.getUnchecked(namingConvention.create()
-                                                        .sharedNameForGroup(group));
+         SshKeyPair keyPair = keyPairCache.getUnchecked(namingConvention.create().sharedNameForGroup(group));
          keyPairCache.asMap().put(keyPair.getName(), keyPair);
          templateOptions.keyPair(keyPair.getName());
          options.keyPair(keyPair.getName());
@@ -233,35 +243,61 @@ public class CloudStackComputeServiceAdapter implements
          templateId, options);
       VirtualMachine vm = blockUntilJobCompletesAndReturnResult.<VirtualMachine>apply(job);
       logger.debug("--- virtualmachine: %s", vm);
-      LoginCredentials.Builder credentialsBuilder = LoginCredentials.builder();
-      if (templateOptions.getKeyPair() != null) {
-         SshKeyPair keyPair = keyPairCache.getUnchecked(templateOptions.getKeyPair());
-         credentialsBuilder.privateKey(keyPair.getPrivateKey());
-      } else if (vm.isPasswordEnabled()) {
-         assert vm.getPassword() != null : vm;
-         credentialsBuilder.password(vm.getPassword());
+      LoginCredentials credentials = credentialsProvider.get();
+      if (credentials == null || credentials.getUser() == null) {
+         LoginCredentials.Builder credentialsBuilder = LoginCredentials.builder();
+         if (templateOptions.getKeyPair() != null) {
+            SshKeyPair keyPair = keyPairCache.getUnchecked(templateOptions.getKeyPair());
+            credentialsBuilder.privateKey(keyPair.getPrivateKey());
+         } else if (vm.isPasswordEnabled()) {
+            assert vm.getPassword() != null : vm;
+            credentialsBuilder.password(vm.getPassword());
+         }
+         credentials = credentialsBuilder.build();
       }
 
       try {
-          if (templateOptions.shouldSetupStaticNat()) {
-             Capabilities capabilities = client.getConfigurationApi().listCapabilities();
-             // TODO: possibly not all network ids, do we want to do this
-             for (String networkId : options.getNetworkIds()) {
-                logger.debug(">> creating static NAT for virtualMachine(%s) in network(%s)", vm.getId(), networkId);
-                PublicIPAddress ip = staticNATVMInNetwork.create(networks.get(networkId)).apply(vm);
-                logger.trace("<< static NATed IPAddress(%s) to virtualMachine(%s)", ip.getId(), vm.getId());
-                vm = client.getVirtualMachineApi().getVirtualMachine(vm.getId());
-                List<Integer> ports = Ints.asList(templateOptions.getInboundPorts());
-                if (capabilities.getCloudStackVersion().startsWith("2")) {
-                   logger.debug(">> setting up IP forwarding for IPAddress(%s) rules(%s)", ip.getId(), ports);
-                   Set<IPForwardingRule> rules = setupPortForwardingRulesForIP.apply(ip, ports);
-                   logger.trace("<< setup %d IP forwarding rules on IPAddress(%s)", rules.size(), ip.getId());
-                } else {
-                   logger.debug(">> setting up firewall rules for IPAddress(%s) rules(%s)", ip.getId(), ports);
-                   Set<FirewallRule> rules = setupFirewallRulesForIP.apply(ip, ports);
-                   logger.trace("<< setup %d firewall rules on IPAddress(%s)", rules.size(), ip.getId());
-                }
-             }
+         ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
+         builder.putAll(template.getOptions().getUserMetadata());
+         for (String tag : template.getOptions().getTags())
+            builder.put(tag, "jclouds-empty-tag-placeholder");
+         Map<String, String> common = builder.build();
+
+         if (!common.isEmpty()) {
+            logger.debug(">> adding tags %s to virtualmachine(%s)", common, vm.getId());
+            CreateTagsOptions tagOptions = CreateTagsOptions.Builder.resourceIds(vm.getId())
+                  .resourceType(Tag.ResourceType.USER_VM)
+                  .tags(common);
+            AsyncCreateResponse tagJob = client.getTagApi().createTags(tagOptions);
+            awaitCompletion(tagJob.getJobId());
+            logger.debug("<< tags added");
+            vm = client.getVirtualMachineApi().getVirtualMachine(vm.getId());
+         }
+         if (templateOptions.shouldSetupStaticNat()) {
+            Capabilities capabilities = client.getConfigurationApi().listCapabilities();
+
+            NIC nic = Iterables.find(vm.getNICs(), new Predicate<NIC>() {
+               @Override
+               public boolean apply(NIC input) {
+                  return (input == null) ? false : input.isDefault();
+               }
+            });
+            String networkId = nic.getNetworkId();
+
+            logger.debug(">> creating static NAT for virtualMachine(%s) in network(%s)", vm.getId(), networkId);
+            PublicIPAddress ip = staticNATVMInNetwork.create(networks.get(networkId)).apply(vm);
+            logger.trace("<< static NATed IPAddress(%s) to virtualMachine(%s)", ip.getId(), vm.getId());
+            vm = client.getVirtualMachineApi().getVirtualMachine(vm.getId());
+            List<Integer> ports = Ints.asList(templateOptions.getInboundPorts());
+            if (capabilities.getCloudStackVersion().startsWith("2")) {
+               logger.debug(">> setting up IP forwarding for IPAddress(%s) rules(%s)", ip.getId(), ports);
+               Set<IPForwardingRule> rules = setupPortForwardingRulesForIP.apply(ip, ports);
+               logger.trace("<< setup %d IP forwarding rules on IPAddress(%s)", rules.size(), ip.getId());
+            } else {
+               logger.debug(">> setting up firewall rules for IPAddress(%s) rules(%s)", ip.getId(), ports);
+               Set<FirewallRule> rules = setupFirewallRulesForIP.apply(ip, ports);
+               logger.trace("<< setup %d firewall rules on IPAddress(%s)", rules.size(), ip.getId());
+            }
           }
       } catch (RuntimeException re) {
           logger.error("-- exception after node has been created, trying to destroy the created virtualMachine(%s)", vm.getId());
@@ -272,7 +308,7 @@ public class CloudStackComputeServiceAdapter implements
           }
           throw re;
       }
-      return new NodeAndInitialCredentials<VirtualMachine>(vm, vm.getId() + "", credentialsBuilder.build());
+      return new NodeAndInitialCredentials<VirtualMachine>(vm, vm.getId() + "", credentials);
    }
 
    @Override

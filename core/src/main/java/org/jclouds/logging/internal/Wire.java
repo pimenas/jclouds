@@ -16,10 +16,15 @@
  */
 package org.jclouds.logging.internal;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static org.jclouds.io.Payloads.newPayload;
-import static org.jclouds.util.Closeables2.closeQuietly;
+import com.google.common.io.ByteStreams;
+import com.google.common.io.FileBackedOutputStream;
+import org.jclouds.Constants;
+import org.jclouds.io.MutableContentMetadata;
+import org.jclouds.io.Payload;
+import org.jclouds.io.PayloadEnclosing;
+import org.jclouds.logging.Logger;
 
+import javax.annotation.Resource;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -28,15 +33,9 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
-import javax.annotation.Resource;
-
-import org.jclouds.io.MutableContentMetadata;
-import org.jclouds.io.Payload;
-import org.jclouds.io.PayloadEnclosing;
-import org.jclouds.logging.Logger;
-
-import com.google.common.io.ByteStreams;
-import com.google.common.io.FileBackedOutputStream;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static org.jclouds.io.Payloads.newPayload;
+import static org.jclouds.util.Closeables2.closeQuietly;
 
 /**
  * Logs data to the wire LOG, similar to {@code org.apache.HttpWire.impl.conn.Wire}
@@ -47,6 +46,10 @@ public abstract class Wire {
    protected Logger logger = Logger.NULL;
 
    protected abstract Logger getWireLog();
+
+   protected boolean isLogSensitiveInformation() {
+      return false;
+   }
 
    private void wire(String header, InputStream instream) {
       StringBuilder buffer = new StringBuilder();
@@ -119,7 +122,13 @@ public abstract class Wire {
 
    public void input(PayloadEnclosing request) {
       Payload oldContent = request.getPayload();
-      Payload wiredPayload = newPayload(input(oldContent.getInput()));
+      Payload wiredPayload;
+      if (!oldContent.isSensitive() || isLogSensitiveInformation()) {
+         wiredPayload = newPayload(input(oldContent.getInput()));
+      } else {
+         wiredPayload = newPayload(oldContent.getInput());
+      }
+      wiredPayload.setSensitive(oldContent.isSensitive());
       copyPayloadMetadata(oldContent, wiredPayload);
       request.setPayload(wiredPayload);
    }
@@ -127,11 +136,21 @@ public abstract class Wire {
    public void output(PayloadEnclosing request) {
       Payload oldContent = request.getPayload();
       Payload wiredPayload;
-      try {
-         wiredPayload = newPayload(output(oldContent.getRawContent()));
-      } catch (UnsupportedOperationException e) {
-         wiredPayload = newPayload(output(oldContent.getInput()));
+      if (!oldContent.isSensitive() || isLogSensitiveInformation()) {
+         try {
+            wiredPayload = newPayload(output(oldContent.getRawContent()));
+         } catch (UnsupportedOperationException e) {
+            wiredPayload = newPayload(output(oldContent.getInput()));
+         }
+      } else {
+         try {
+            wiredPayload = newPayload(oldContent.getRawContent());
+         } catch (UnsupportedOperationException e) {
+            wiredPayload = newPayload(oldContent.getInput());
+         }
+         output("Sensitive data in payload, use " + Constants.PROPERTY_LOGGER_WIRE_LOG_SENSITIVE_INFO + " override to enable logging this data.");
       }
+      wiredPayload.setSensitive(oldContent.isSensitive());
       copyPayloadMetadata(oldContent, wiredPayload);
       request.setPayload(wiredPayload);
    }
@@ -141,6 +160,7 @@ public abstract class Wire {
       MutableContentMetadata wiredMd = wiredPayload.getContentMetadata();
       if (oldMd.getContentLength() != null)
          wiredMd.setContentLength(oldMd.getContentLength());
+      wiredMd.setCacheControl(oldMd.getCacheControl());
       wiredMd.setContentType(oldMd.getContentType());
       wiredMd.setContentMD5(oldMd.getContentMD5());
       wiredMd.setContentDisposition(oldMd.getContentDisposition());

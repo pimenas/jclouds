@@ -16,8 +16,7 @@
  */
 package org.jclouds.azureblob.blobstore.functions;
 
-import java.util.Map;
-import java.util.Set;
+import java.util.SortedSet;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -25,13 +24,11 @@ import javax.inject.Singleton;
 import org.jclouds.azureblob.domain.ListBlobsResponse;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.domain.StorageType;
 import org.jclouds.blobstore.domain.internal.PageSetImpl;
 import org.jclouds.blobstore.functions.PrefixToResourceMetadata;
 
 import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 @Singleton
@@ -55,15 +52,12 @@ public class ListBlobsResponseToResourceList implements
    }
 
    public PageSet<? extends StorageMetadata> apply(ListBlobsResponse from) {
-      Set<StorageMetadata> contents = Sets.<StorageMetadata> newHashSet(Iterables.transform(from,
+      // use sorted set to order relative paths correctly
+      SortedSet<StorageMetadata> contents = Sets.<StorageMetadata> newTreeSet(Iterables.transform(from,
                object2blobMd));
 
-      Map<String, StorageMetadata> nameToMd = Maps.uniqueIndex(contents, indexer);
       for (String prefix : from.getBlobPrefixes()) {
-         prefix = prefix.endsWith("/") ? prefix.substring(0, prefix.lastIndexOf('/')) : prefix;
-         if (!nameToMd.containsKey(prefix)
-                  || nameToMd.get(prefix).getType() != StorageType.RELATIVE_PATH)
-            contents.add(prefix2ResourceMd.apply(prefix));
+         contents.add(prefix2ResourceMd.apply(prefix));
       }
       return new PageSetImpl<StorageMetadata>(contents, from.getNextMarker());
    }

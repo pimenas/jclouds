@@ -33,6 +33,7 @@ import static java.lang.String.format;
 import static java.lang.System.currentTimeMillis;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static java.util.logging.Logger.getAnonymousLogger;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.jclouds.Constants.PROPERTY_USER_THREADS;
 import static org.jclouds.compute.options.RunScriptOptions.Builder.nameTask;
 import static org.jclouds.compute.options.RunScriptOptions.Builder.wrapInInitScript;
@@ -44,6 +45,8 @@ import static org.jclouds.compute.predicates.NodePredicates.inGroup;
 import static org.jclouds.compute.predicates.NodePredicates.runningInGroup;
 import static org.jclouds.compute.util.ComputeServiceUtils.getCores;
 import static org.jclouds.util.Predicates2.retry;
+import static org.jclouds.utils.TestUtils.NO_INVOCATIONS;
+import static org.jclouds.utils.TestUtils.SINGLE_NO_ARG_INVOCATION;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -51,7 +54,6 @@ import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
 import java.io.IOException;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -81,6 +83,7 @@ import org.jclouds.compute.domain.NodeMetadata.Status;
 import org.jclouds.compute.domain.OperatingSystem;
 import org.jclouds.compute.domain.Template;
 import org.jclouds.compute.domain.TemplateBuilder;
+import org.jclouds.compute.domain.internal.ArbitraryCpuRamTemplateBuilderImpl;
 import org.jclouds.compute.util.OpenSocketFinder;
 import org.jclouds.domain.Credentials;
 import org.jclouds.domain.Location;
@@ -95,7 +98,8 @@ import org.jclouds.scriptbuilder.statements.login.AdminAccess;
 import org.jclouds.ssh.SshClient;
 import org.jclouds.ssh.SshException;
 import org.testng.annotations.AfterClass;
-import org.testng.annotations.BeforeGroups;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import com.google.common.base.Function;
@@ -112,6 +116,7 @@ import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.Uninterruptibles;
 import com.google.inject.Key;
 import com.google.inject.Module;
 import com.google.inject.name.Names;
@@ -123,13 +128,13 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
 
    protected Predicate<HostAndPort> socketTester;
    protected OpenSocketFinder openSocketFinder;
-   protected SortedSet<NodeMetadata> nodes;
+   protected SortedSet<? extends NodeMetadata> nodes;
    protected ComputeService client;
 
    protected Template template;
    protected Map<String, String> keyPair;
 
-   @BeforeGroups(groups = { "integration", "live" })
+   @BeforeClass(groups = { "integration", "live" })
    @Override
    public void setupContext() {
       setServiceDefaults();
@@ -141,7 +146,6 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
          group = group + "-";
       setupKeyPairForTest();
       super.setupContext();
-      buildSocketTester();
    }
 
    public void setServiceDefaults() {
@@ -164,6 +168,7 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
    protected void initializeContext() {
       super.initializeContext();
       client = view.getComputeService();
+      buildSocketTester();
    }
 
    @Test(enabled = true, expectedExceptions = AuthorizationException.class)
@@ -217,7 +222,7 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
       } catch (Exception e) {
 
       }
-      template = buildTemplate(client.templateBuilder());
+      template = buildTemplate(templateBuilder());
       template.getOptions().blockOnPort(22, 120);
       try {
          Set<? extends NodeMetadata> nodes = client.createNodesInGroup(group, 1, template);
@@ -226,13 +231,13 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
          assert good.identity != null : nodes;
 
          for (Entry<? extends NodeMetadata, ExecResponse> response : client.runScriptOnNodesMatching(
-               runningInGroup(group), "hostname",
+               runningInGroup(group), "hostname -s",
                wrapInInitScript(false).runAsRoot(false).overrideLoginCredentials(good)).entrySet()) {
             checkResponseEqualsHostname(response.getValue(), response.getKey());
          }
 
          // test single-node execution
-         ExecResponse response = client.runScriptOnNode(node.getId(), "hostname",
+         ExecResponse response = client.runScriptOnNode(node.getId(), "hostname -s",
                wrapInInitScript(false).runAsRoot(false));
          checkResponseEqualsHostname(response, node);
          OperatingSystem os = node.getOperatingSystem();
@@ -250,7 +255,6 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
                .adminUsername("foo").adminHome("/over/ridden/foo").build(), nameTask("adminUpdate"));
 
          response = future.get(3, TimeUnit.MINUTES);
-
          assert response.getExitStatus() == 0 : node.getId() + ": " + response;
 
          node = client.getNodeMetadata(node.getId());
@@ -258,14 +262,27 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
          assertEquals(node.getCredentials().identity, "foo");
          assert node.getCredentials().credential != null : nodes;
 
-         weCanCancelTasks(node);
-
-         assert response.getExitStatus() == 0 : node.getId() + ": " + response;
-
          response = client.runScriptOnNode(node.getId(), "echo $USER", wrapInInitScript(false).runAsRoot(false));
-
          assert response.getOutput().trim().equals("foo") : node.getId() + ": " + response;
 
+      } finally {
+         client.destroyNodesMatching(inGroup(group));
+      }
+   }
+
+   @Test
+   public void testWeCanCancelTasks() throws Exception {
+      String group = this.group + "w";
+      try {
+         client.destroyNodesMatching(inGroup(group));
+      } catch (Exception e) {
+
+      }
+      template = buildTemplate(templateBuilder());
+      try {
+         Set<? extends NodeMetadata> nodes = client.createNodesInGroup(group, 1, template);
+         NodeMetadata node = getOnlyElement(nodes);
+         weCanCancelTasks(node);
       } finally {
          client.destroyNodesMatching(inGroup(group));
       }
@@ -289,7 +306,7 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
    }
 
    @Test(enabled = false)
-   public void weCanCancelTasks(NodeMetadata node) throws InterruptedException, ExecutionException {
+   protected void weCanCancelTasks(NodeMetadata node) throws InterruptedException, ExecutionException {
       ListenableFuture<ExecResponse> future = client.submitScriptOnNode(node.getId(), "sleep 300",
             nameTask("sleeper").runAsRoot(false));
       ExecResponse response = null;
@@ -320,7 +337,7 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
 
    @Test(enabled = true, dependsOnMethods = { "testImagesCache" })
    public void testTemplateMatch() throws Exception {
-      template = buildTemplate(client.templateBuilder());
+      template = buildTemplate(templateBuilder());
       Template toMatch = client.templateBuilder().imageId(template.getImage().getId()).build();
       assertEquals(toMatch.getImage(), template.getImage());
    }
@@ -329,7 +346,7 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
       ComputeTestUtils.checkHttpGet(view.utils().http(), node, 8080);
    }
 
-   @Test(enabled = true, dependsOnMethods = "testConcurrentUseOfComputeServiceToCreateNodes")
+   @Test(enabled = true, dependsOnMethods = "testCreateTwoNodesWithOneSpecifiedName")
    public void testCreateTwoNodesWithRunScript() throws Exception {
       try {
          client.destroyNodesMatching(inGroup(group));
@@ -359,21 +376,20 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
       checkOsMatchesTemplate(node2);
    }
 
-   @Test(enabled = true, dependsOnMethods = "testCreateTwoNodesWithRunScript")
+   @Test(enabled = true, dependsOnMethods = "testDestroyNodes", alwaysRun = true)
    public void testCreateTwoNodesWithOneSpecifiedName() throws Exception {
-      template = buildTemplate(client.templateBuilder());
+      template = buildTemplate(templateBuilder());
       template.getOptions().nodeNames(ImmutableSet.of("first-node"));
-      Set<? extends NodeMetadata> nodes;
       try {
-         nodes = newTreeSet(client.createNodesInGroup(group, 2, template));
+         this.nodes = newTreeSet(client.createNodesInGroup(group, 2, template));
       } catch (RunNodesException e) {
-         nodes = newTreeSet(concat(e.getSuccessfulNodes(), e.getNodeErrors().keySet()));
+         this.nodes = newTreeSet(concat(e.getSuccessfulNodes(), e.getNodeErrors().keySet()));
          throw e;
       }
 
-      assertEquals(nodes.size(), 2, "expected two nodes but was " + nodes);
-      NodeMetadata node1 = Iterables.getFirst(nodes, null);
-      NodeMetadata node2 = Iterables.getLast(nodes, null);
+      assertEquals(this.nodes.size(), 2, "expected two nodes but was " + nodes);
+      NodeMetadata node1 = Iterables.getFirst(this.nodes, null);
+      NodeMetadata node2 = Iterables.getLast(this.nodes, null);
       // credentials aren't always the same
       // assertEquals(node1.getCredentials(), node2.getCredentials());
 
@@ -381,15 +397,13 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
               "one node should be named 'first-node'");
       assertFalse(node1.getName().equals("first-node") && node2.getName().equals("first-node"),
               "one node should be named something other than 'first-node");
-
-      this.nodes.addAll(nodes);
    }
 
-   private Template refreshTemplate() {
-      return template = addRunScriptToTemplate(buildTemplate(client.templateBuilder()));
+   protected Template refreshTemplate() {
+      return template = addRunScriptToTemplate(buildTemplate(templateBuilder()));
    }
 
-   protected static Template addRunScriptToTemplate(Template template) {
+   protected Template addRunScriptToTemplate(Template template) {
       template.getOptions().runScript(Statements.newStatementList(AdminAccess.standard(), InstallJDK.fromOpenJDK()));
       return template;
    }
@@ -414,8 +428,18 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
       }
    }
 
-   @Test(enabled = true, dependsOnMethods = "testCreateTwoNodesWithOneSpecifiedName")
+   @Test(enabled = true, dependsOnMethods = "testCreateTwoNodesWithRunScript", alwaysRun = true)
    public void testCreateAnotherNodeWithANewContextToEnsureSharedMemIsntRequired() throws Exception {
+      if (this.nodes == null || this.nodes.isEmpty()) {
+         template = buildTemplate(templateBuilder());
+         try {
+            nodes = newTreeSet(client.createNodesInGroup(group, 1, template));
+         } catch (RunNodesException e) {
+            nodes = newTreeSet(concat(e.getSuccessfulNodes(), e.getNodeErrors().keySet()));
+            throw e;
+         }
+      }
+
       initializeContext();
 
       Location existingLocation = Iterables.get(this.nodes, 0).getLocation();
@@ -424,7 +448,7 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
 
       if (existingLocationIsAssignable) {
          getAnonymousLogger().info("creating another node based on existing nodes' location: " + existingLocation);
-         template = buildTemplate(client.templateBuilder());
+         template = buildTemplate(templateBuilder());
          template = addRunScriptToTemplate(client.templateBuilder().fromTemplate(template)
                .locationId(existingLocation.getId()).build());
       } else {
@@ -443,7 +467,7 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
       else
          this.assertLocationSameOrChild(checkNotNull(node.getLocation(), "location of %s", node), template.getLocation());
       checkOsMatchesTemplate(node);
-      this.nodes.add(node);
+      this.nodes = newTreeSet(concat(this.nodes, nodes));
    }
 
    @Test(enabled = true, dependsOnMethods = "testCompareSizes")
@@ -459,7 +483,7 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
             final int groupNum = i;
             final String group = "twin" + groupNum;
             groups.add(group);
-            template = buildTemplate(client.templateBuilder());
+            template = buildTemplate(templateBuilder());
             template.getOptions().inboundPorts(22, 8080).blockOnPort(22, 300 + groupNum);
             ListenableFuture<NodeMetadata> future = userExecutor.submit(new Callable<NodeMetadata>() {
                public NodeMetadata call() throws Exception {
@@ -511,12 +535,28 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
       }
    }
 
+   protected TemplateBuilder templateBuilder() {
+      TemplateBuilder templateBuilder = client.templateBuilder();
+      if (templateBuilderSpec != null) {
+         templateBuilder = templateBuilder.from(templateBuilderSpec);
+      }
+      return templateBuilder;
+   }
+
    protected Template buildTemplate(TemplateBuilder templateBuilder) {
       return templateBuilder.build();
    }
 
-   @Test(enabled = true, dependsOnMethods = "testCreateAnotherNodeWithANewContextToEnsureSharedMemIsntRequired")
+   @Test(enabled = true)
    public void testGet() throws Exception {
+      template = buildTemplate(templateBuilder());
+      try {
+         nodes = newTreeSet(client.createNodesInGroup(group, 1, template));
+      } catch (RunNodesException e) {
+         nodes = newTreeSet(concat(e.getSuccessfulNodes(), e.getNodeErrors().keySet()));
+         throw e;
+      }
+
       Map<String, ? extends NodeMetadata> metadataMap = newLinkedHashMap(uniqueIndex(
             filter(client.listNodesDetailsMatching(all()), and(inGroup(group), not(TERMINATED))),
             new Function<NodeMetadata, String>() {
@@ -542,12 +582,6 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
          assertEquals(metadata.getPublicAddresses().size(), node.getPublicAddresses().size(), format(
                "[%s] didn't match: [%s]", metadata.getPublicAddresses(), node.getPublicAddresses().size()));
       }
-      assertNodeZero(metadataMap.values());
-   }
-
-   protected void assertNodeZero(Collection<? extends NodeMetadata> metadataSet) {
-      assert metadataSet.size() == 0 : format("nodes left in set: [%s] which didn't match set: [%s]", metadataSet,
-            nodes);
    }
 
    @Test(enabled = true, dependsOnMethods = "testGet")
@@ -618,7 +652,7 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
 
          }));
 
-      SortedSet<NodeMetadata> listedNodes = ImmutableSortedSet.copyOf(client.listNodesByIds(nodeIds));
+      SortedSet<? extends ComputeMetadata> listedNodes = ImmutableSortedSet.copyOf(client.listNodesByIds(nodeIds));
       // newTreeSet is here because elementsEqual cares about ordering.
       assertTrue(Iterables.elementsEqual(nodes, listedNodes),
               "nodes and listNodesByIds should be identical: was " + listedNodes + " but should be " + nodes);
@@ -645,16 +679,21 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
       }
    }
 
-   @Test(enabled = true, dependsOnMethods = { "testListNodes", "testGetNodesWithDetails", "testListNodesByIds" })
+   @Test(enabled = true, alwaysRun = true, dependsOnMethods = { "testListNodes", "testGetNodesWithDetails", "testListNodesByIds" })
    public void testDestroyNodes() {
       int toDestroy = refreshNodes().size();
       Set<? extends NodeMetadata> destroyed = client.destroyNodesMatching(inGroup(group));
       assertEquals(toDestroy, destroyed.size());
+      waitGracePeriodForDestroyedNodes();
       for (NodeMetadata node : filter(client.listNodesDetailsMatching(all()), inGroup(group))) {
          assert node.getStatus() == Status.TERMINATED : node;
          assert view.utils().credentialStore().get("node#" + node.getId()) == null : "credential should have been null for "
                + "node#" + node.getId();
       }
+   }
+
+   protected void waitGracePeriodForDestroyedNodes() {
+      Uninterruptibles.sleepUninterruptibly(100, TimeUnit.SECONDS);
    }
 
    private Set<? extends NodeMetadata> refreshNodes() {
@@ -717,7 +756,7 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
       ImmutableSet<String> tags = ImmutableSet.of(group);
       Stopwatch watch = Stopwatch.createStarted();
 
-      template = buildTemplate(client.templateBuilder());
+      template = buildTemplate(templateBuilder());
       template.getOptions().inboundPorts(22, 8080).blockOnPort(22, 300).userMetadata(userMetadata).tags(tags);
 
       NodeMetadata node = getOnlyElement(client.createNodesInGroup(group, 1, template));
@@ -804,6 +843,8 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
                provider2 = location.getParent().getParent();
             assertProvider(provider2);
             break;
+         default:
+            break;
          }
       }
    }
@@ -818,7 +859,7 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
 
       }
       // no inbound ports
-      template = buildTemplate(client.templateBuilder());
+      template = buildTemplate(templateBuilder());
       template.getOptions().blockUntilRunning(false).inboundPorts();
       try {
          long time = currentTimeMillis();
@@ -842,14 +883,23 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
       for (Hardware hardware : client.listHardwareProfiles()) {
          assert hardware.getProviderId() != null : hardware;
          assert getCores(hardware) > 0 : hardware;
-         assert hardware.getVolumes().size() >= 0 : hardware;
          assert hardware.getRam() > 0 : hardware;
          assertEquals(hardware.getType(), ComputeType.HARDWARE);
+         checkVolumes(hardware);
       }
+   }
+
+   protected void checkVolumes(Hardware hardware) {
+      assert hardware.getVolumes().size() > 0 : hardware;
    }
 
    @Test(enabled = true)
    public void testCompareSizes() throws Exception {
+      // Allow to override the comparison but keeping testng dependencies happy
+      doCompareSizes();
+   }
+
+   protected void doCompareSizes() throws Exception {
       Hardware defaultSize = client.templateBuilder().build().getHardware();
 
       Hardware smallest = client.templateBuilder().smallest().build().getHardware();
@@ -904,6 +954,26 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
       }
    }
 
+   @DataProvider
+   public Object[][] onlyIfAutomaticHardwareSupported() {
+      return  client.templateBuilder() instanceof ArbitraryCpuRamTemplateBuilderImpl ?
+            SINGLE_NO_ARG_INVOCATION : NO_INVOCATIONS;
+   }
+
+   @Test(dataProvider = "onlyIfAutomaticHardwareSupported", groups = {"integration", "live"})
+   public void testCreateNodeWithCustomHardware() throws Exception {
+      Template template = buildTemplate(templateBuilder()
+            .hardwareId("automatic:cores=2;ram=4096"));
+      try {
+         NodeMetadata node = getOnlyElement(client.createNodesInGroup(group + "custom", 1, template));
+         assertThat(node.getHardware().getRam()).isEqualTo(4096);
+         assertThat(node.getHardware().getProcessors().get(0).getCores()).isEqualTo(2);
+      }
+      finally {
+         client.destroyNodesMatching(inGroup(group + "custom"));
+      }
+   }
+
    @AfterClass(groups = { "integration", "live" })
    @Override
    protected void tearDownContext() {
@@ -912,7 +982,7 @@ public abstract class BaseComputeServiceLiveTest extends BaseComputeServiceConte
             // Destroy all nodes in the group but also make sure to destroy other created nodes that might not be in it.
             // The "testCreateTwoNodesWithOneSpecifiedName" creates nodes with an explicit name that puts them outside the group,
             // so the list of nodes should also be taken into account when destroying the nodes.
-            client.destroyNodesMatching(Predicates.<NodeMetadata> or(inGroup(group), in(nodes)));
+            client.destroyNodesMatching(Predicates.<NodeMetadata> or(inGroup(group), (Predicate<NodeMetadata>) in(nodes)));
          }
       } catch (Exception e) {
 

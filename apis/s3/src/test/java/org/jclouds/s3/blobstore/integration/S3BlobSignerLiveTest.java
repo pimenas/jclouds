@@ -16,6 +16,8 @@
  */
 package org.jclouds.s3.blobstore.integration;
 
+import java.io.IOException;
+
 import org.jclouds.blobstore.integration.internal.BaseBlobSignerLiveTest;
 import org.jclouds.blobstore.integration.internal.BaseBlobStoreIntegrationTest;
 import org.testng.annotations.Test;
@@ -26,5 +28,19 @@ public class S3BlobSignerLiveTest extends BaseBlobSignerLiveTest {
    public S3BlobSignerLiveTest() {
       provider = "s3";
       BaseBlobStoreIntegrationTest.SANITY_CHECK_RETURNED_BUCKET_NAME = true;
+   }
+
+   @Test
+   public void testSignGetUrlWithTimeExpired() throws InterruptedException, IOException {
+      // Intentionally try with a timeout of 0. AWS signature v4 throws an error if
+      // the timeout is negative.
+      super.testSignGetUrlWithTime(/*timeout=*/ 0);
+   }
+
+   @Test
+   public void testSignPutUrlWithTimeExpired() throws Exception {
+      // Intentionally try with a timeout of 0. AWS signature v4 throws an error if
+      // the timeout is negative.
+      super.testSignPutUrlWithTime(/*timeout=*/ 0);
    }
 }

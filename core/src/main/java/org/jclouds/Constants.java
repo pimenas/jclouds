@@ -100,10 +100,40 @@ public final class Constants {
    /**
     * Boolean property.
     * <p/>
-    * Whether or not to use the proxy setup from the underlying operating system.
+    * Whether or not to attempt to use the proxy setup from the underlying operating system.
+    * Defaults to false.
+    * Only considered if {@link #PROPERTY_PROXY_ENABLE_JVM_PROXY} is false
+    * and {@link #PROPERTY_PROXY_HOST} is not supplied.
+    * Due to how Java's <code>java.net.useSystemProxies</code> is handled,
+    * this may have limited effectiveness.
+    * @deprecated in 2.0.0, replaced by {@link #PROPERTY_PROXY_ENABLE_JVM_PROXY} does what this intended but better
     */
+   @Deprecated
+   // deprecated because:  the impl attempts to set the corresponding JVM system property
+   // but that is documented to have no effect if set after system startup;
+   // see e.g. https://docs.oracle.com/javase/7/docs/api/java/net/doc-files/net-properties.html
    public static final String PROPERTY_PROXY_SYSTEM = "jclouds.use-system-proxy";
-   
+
+   /**
+    * Boolean property.
+    * <p/>
+    * Whether or not jclouds is permitted to use the default proxy detected by the JVM
+    * and configured there using the usual Java settings:
+    * <ul>
+    * <li> <code>java.net.useSystemProxies</code>
+    * <li> <code>java.net.httpProxyHost</code>
+    * <li> <code>java.net.httpProxyPort</code>
+    * </ul>
+    * <p/>
+    * Defaults to true so that the Java standard way of setting proxies can be used.
+    * However if {@link #PROPERTY_PROXY_HOST} is set that will always take priority
+    * when jclouds looks for a proxy.
+    * If this property is explicitly set <code>false</code>,
+    * then jclouds will not use a proxy irrespective of the <code>java.net.*</code> settings,
+    * unless {@link #PROPERTY_PROXY_HOST} is set or {@link #PROPERTY_PROXY_SYSTEM} is true.
+    */
+   public static final String PROPERTY_PROXY_ENABLE_JVM_PROXY = "jclouds.enable-jvm-proxy";
+
    /**
     * String property.
     * <p/>
@@ -132,6 +162,7 @@ public final class Constants {
     * String property.
     * <p/>
     * Explicitly sets the user name credential for proxy authentication.
+    * This only applies when {@link #PROPERTY_PROXY_HOST} is supplied.
     */
    public static final String PROPERTY_PROXY_USER = "jclouds.proxy-user";
    
@@ -139,6 +170,7 @@ public final class Constants {
     * String property.
     * <p/>
     * Explicitly sets the password credential for proxy authentication.
+    * This only applies when {@link #PROPERTY_PROXY_HOST} is supplied.
     */
    public static final String PROPERTY_PROXY_PASSWORD = "jclouds.proxy-password";
 
@@ -192,6 +224,13 @@ public final class Constants {
     */
    public static final String PROPERTY_TRUST_ALL_CERTS = "jclouds.trust-all-certs";
    /**
+    * Boolean property.
+    * <p/>
+    * true to allow logging of sensitive information like passwords in the wire log
+    * default value is false
+    */
+   public static final String PROPERTY_LOGGER_WIRE_LOG_SENSITIVE_INFO = "jclouds.wire.log.sensitive";
+   /**
     * Name of the logger that records all http headers from the client and the server.
     */
    public static final String LOGGER_HTTP_HEADERS = "jclouds.headers";
@@ -231,8 +270,7 @@ public final class Constants {
     * Explicitly identifies the build that the server jclouds connects to is running.
     * 
     * For example, for virtualbox, the api version may be {@code 4.1.8} while the build version is
-    * {@code 4.1.8r75467}. Or a vcloud endpoint may be api version {@code 1.0} while the build is
-    * {@code 1.5.0.0.124312}
+    * {@code 4.1.8r75467}.
     */
    public static final String PROPERTY_BUILD_VERSION = "jclouds.build-version";
    
@@ -302,9 +340,33 @@ public final class Constants {
    public static final String PROPERTY_STRIP_EXPECT_HEADER = "jclouds.strip-expect-header";
 
    /**
+    * String property.
+    * <p/>
+    * This will override the user agent header in http request.
+    */
+   public static final String PROPERTY_USER_AGENT = "jclouds.user-agent";
+
+   /**
+    * When true, add the Connection: close header. Useful when interacting with
+    * providers that don't properly support persistent connections. Defaults to false.
+    */
+   public static final String PROPERTY_CONNECTION_CLOSE_HEADER = "jclouds.connection-close-header";
+
+   /**
     * The maximum number of blob deletes happening in parallel at any point in time.
     */
    public static final String PROPERTY_MAX_PARALLEL_DELETES = "jclouds.max-parallel-deletes";
+
+   /** Comma-separated list of methods considered idempotent for purposes of retries.  By default jclouds uses DELETE,GET,HEAD,OPTIONS,PUT. */
+   public static final String PROPERTY_IDEMPOTENT_METHODS = "jclouds.idempotent-methods";
+   
+   /**
+    * Maximum amount of time (in milliseconds) a request will wait until retrying if
+    * the rate limit is exhausted.
+    * <p>
+    * Default value: 2 minutes.
+    */
+   public static final String PROPERTY_MAX_RATE_LIMIT_WAIT = "jclouds.max-ratelimit-wait";
 
    private Constants() {
       throw new AssertionError("intentionally unimplemented");

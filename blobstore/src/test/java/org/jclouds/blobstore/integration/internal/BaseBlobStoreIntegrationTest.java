@@ -22,7 +22,6 @@ import static org.jclouds.reflect.Reflection2.typeToken;
 import static org.testng.Assert.assertEquals;
 
 import java.io.IOException;
-import java.security.SecureRandom;
 import java.util.Date;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -36,6 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.ws.rs.core.MediaType;
 
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.jclouds.apis.BaseViewLiveTest;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.attr.ConsistencyModel;
@@ -66,7 +66,7 @@ import com.google.common.util.concurrent.MoreExecutors;
 import com.google.inject.Module;
 
 public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreContext> {
-   
+
    protected static final String LOCAL_ENCODING = System.getProperty("file.encoding");
    protected static final String XML_STRING_FORMAT = "<apples><apple name=\"%s\"></apple> </apples>";
    protected static final String TEST_STRING = String.format(XML_STRING_FORMAT, "apple");
@@ -81,7 +81,7 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
          String.format(XML_STRING_FORMAT, "emma"));
 
    public static long INCONSISTENCY_WINDOW = 10000;
-   protected static volatile AtomicInteger containerIndex = new AtomicInteger(0);
+   protected static final AtomicInteger containerIndex = new AtomicInteger(0);
 
    protected static volatile int containerCount = Integer.parseInt(System.getProperty("test.blobstore.container-count",
          "10"));
@@ -91,10 +91,13 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
     */
    private static volatile BlockingQueue<String> containerNames = new ArrayBlockingQueue<String>(containerCount);
 
+   protected static final int AWAIT_CONSISTENCY_TIMEOUT_SECONDS = Integer.parseInt(System.getProperty(
+         "test.blobstore.await-consistency-timeout-seconds", "10"));
+
    /**
     * There are a lot of retries here mainly from experience running inside amazon EC2.
     */
-   @BeforeSuite
+   @BeforeSuite(groups = { "integration", "live" })
    public void setUpResourcesForAllThreads(ITestContext testContext) throws Exception {
       setupContext();
       createContainersSharedByAllThreads(view, testContext);
@@ -110,7 +113,7 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
       view.close();
       view = null;
    }
-   
+
    protected Iterable<Module> setupModules() {
       return ImmutableSet.<Module> of(getLoggingModule(), createHttpModule());
    }
@@ -128,7 +131,7 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
       exec = MoreExecutors.listeningDecorator(Executors.newCachedThreadPool());
    }
 
-   
+
    @AfterClass(groups = { "integration", "live" })
    @Override
    protected void tearDownContext() {
@@ -152,7 +155,7 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
                      containerCount++;
                   } else {
                      try {
-                        createContainerAndEnsureEmpty(context, containerName);
+                        createContainerAndEnsureEmpty(context, containerName, false);
                         if (context.getBlobStore().containerExists(containerName))
                            containerNames.put(containerName);
                         else {
@@ -168,6 +171,7 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
                      }
                   }
                }
+               awaitConsistency();
                testContext.setAttribute("containerNames", containerNames);
                System.err.printf("*** containers to test: %s%n", containerNames);
                // careful not to keep too many files open
@@ -248,16 +252,17 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
       assertConsistencyAware(view, assertion);
    }
 
-   protected static void createContainerAndEnsureEmpty(BlobStoreContext context, final String containerName)
-         throws InterruptedException {
+   protected void createContainerAndEnsureEmpty(BlobStoreContext context, final String containerName,
+         boolean ensureConsistent) throws InterruptedException {
       context.getBlobStore().createContainerInLocation(null, containerName);
-      if (context.getConsistencyModel() == ConsistencyModel.EVENTUAL)
-         Thread.sleep(1000);
+      if (ensureConsistent) {
+         awaitConsistency();
+      }
       context.getBlobStore().clearContainer(containerName);
    }
 
    protected void createContainerAndEnsureEmpty(String containerName) throws InterruptedException {
-      createContainerAndEnsureEmpty(view, containerName);
+      createContainerAndEnsureEmpty(view, containerName, true);
    }
 
    protected String addBlobToContainer(String sourceContainer, String key) {
@@ -284,6 +289,7 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
    protected <T extends BlobMetadata> T validateMetadata(T md, String container, String name) {
       assertEquals(md.getName(), name);
       assertEquals(md.getContainer(), container);
+      assertEquals(md.getSize(), md.getContentMetadata().getContentLength());
       return md;
    }
 
@@ -392,7 +398,7 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
          }
       });
    }
-   
+
    protected void assertConsistencyAwareBlobExpiryMetadata(final String containerName, final String blobName,
             final Date expectedExpires) throws InterruptedException {
       assertConsistencyAware(new Runnable() {
@@ -415,7 +421,7 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
          public void run() {
             try {
                Location actualLoc = view.getBlobStore().getBlob(containerName, blobName).getMetadata().getLocation();
-               
+
                assert loc.equals(actualLoc) : String.format(
                      "blob %s in %s, in location %s instead of %s", blobName, containerName, actualLoc, loc);
             } catch (Exception e) {
@@ -436,7 +442,7 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
     * requestor will create a container using the name returned from this. This method will take
     * care not to exceed the maximum containers permitted by a provider by deleting an existing
     * container first.
-    * 
+    *
     * @throws InterruptedException
     */
    public String getScratchContainerName() throws InterruptedException {
@@ -450,7 +456,7 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
           * Ensure that any returned container name actually exists on the server. Return of a
           * non-existent container introduces subtle testing bugs, where later unrelated tests will
           * fail.
-          * 
+          *
           * NOTE: This sanity check should only be run for Stub-based Integration testing -- it will
           * *substantially* slow down tests on a real server over a network.
           */
@@ -481,7 +487,7 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
 
    /**
     * abandon old container name instead of waiting for the container to be created.
-    * 
+    *
     * @throws InterruptedException
     */
    public void destroyContainer(String scratchContainer) throws InterruptedException {
@@ -507,7 +513,7 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
             deleteContainerOrWarnIfUnable(view, container);
          }
       });
-      String newScratchContainer = CONTAINER_PREFIX + new SecureRandom().nextLong();
+      String newScratchContainer = CONTAINER_PREFIX + containerIndex.incrementAndGet();
       System.err.printf("*** allocated new container %s...%n", newScratchContainer);
       return newScratchContainer;
    }
@@ -526,4 +532,9 @@ public class BaseBlobStoreIntegrationTest extends BaseViewLiveTest<BlobStoreCont
       return typeToken(BlobStoreContext.class);
    }
 
+   protected void awaitConsistency() {
+      if (view.getConsistencyModel() == ConsistencyModel.EVENTUAL) {
+         Uninterruptibles.sleepUninterruptibly(AWAIT_CONSISTENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      }
+   }
 }

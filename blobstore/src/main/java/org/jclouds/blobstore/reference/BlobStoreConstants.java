@@ -39,7 +39,7 @@ public final class BlobStoreConstants {
    public static final String DIRECTORY_SUFFIX_ROOT = "/";
    public static final String DIRECTORY_SUFFIX_FOLDER = "_$folder$";
    public static final Collection<String> DIRECTORY_SUFFIXES =
-         ImmutableList.of(DIRECTORY_SUFFIX_FOLDER, DIRECTORY_SUFFIX_ROOT);
+         ImmutableList.of(DIRECTORY_SUFFIX_FOLDER, DIRECTORY_SUFFIX_ROOT, "/", "\\");
 
    /**
     * Key-value implementations of BlobStore, such as S3, do not have directories. We use an empty
@@ -54,6 +54,7 @@ public final class BlobStoreConstants {
    public static final String PROPERTY_USER_METADATA_PREFIX = "jclouds.blobstore.metaprefix";
 
    public static final String BLOBSTORE_LOGGER = "jclouds.blobstore";
+   public static final String DIRECTORY_BLOB_SUFFIX = "/";
 
    private BlobStoreConstants() {
       throw new AssertionError("intentionally unimplemented");

@@ -24,6 +24,8 @@ import org.jclouds.location.functions.RegionToEndpoint;
 import org.jclouds.openstack.cinder.v1.domain.Snapshot;
 import org.jclouds.openstack.cinder.v1.domain.Volume;
 import org.jclouds.openstack.cinder.v1.domain.VolumeType;
+import org.jclouds.javax.annotation.Nullable;
+import org.jclouds.openstack.cinder.v1.extensions.AvailabilityZoneApi;
 import org.jclouds.openstack.cinder.v1.features.QuotaApi;
 import org.jclouds.openstack.cinder.v1.features.SnapshotApi;
 import org.jclouds.openstack.cinder.v1.features.VolumeApi;
@@ -78,8 +80,15 @@ public interface CinderApi extends Closeable {
    QuotaApi getQuotaApi(@EndpointParam(parser = RegionToEndpoint.class) String region);
 
    /**
+    * Provides access to Availability Zone features
+    */
+   @Delegate
+   AvailabilityZoneApi getAvailabilityZoneApi(
+         @EndpointParam(parser = RegionToEndpoint.class) @Nullable String region);
+
+   /**
     * @return the Zone codes configured
-    * @deprecated Please use {@link #getConfiguredRegions()} as this method will be removed in jclouds 3.0.
+    * @deprecated Please use {@link #getConfiguredRegions()} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Provides
@@ -88,8 +97,7 @@ public interface CinderApi extends Closeable {
 
    /**
     * Provides access to Extension features.
-    * @deprecated Please use {@link #getExtensionApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getExtensionApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -98,8 +106,7 @@ public interface CinderApi extends Closeable {
 
    /**
     * Provides access to Volume features.
-    * @deprecated Please use {@link #getVolumeApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getVolumeApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -108,8 +115,7 @@ public interface CinderApi extends Closeable {
 
    /**
     * Provides access to VolumeType features.
-    * @deprecated Please use {@link #getVolumeTypeApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getVolumeTypeApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -118,12 +124,10 @@ public interface CinderApi extends Closeable {
 
    /**
     * Provides access to Snapshot features.
-    * @deprecated Please use {@link #getSnapshotApi(String)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getSnapshotApi(String)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
    SnapshotApi getSnapshotApiForZone(
          @EndpointParam(parser = RegionToEndpoint.class) String zone);
-
 }

@@ -22,6 +22,9 @@ import java.net.URI;
 import java.util.Date;
 import java.util.Map;
 
+import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
+
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.StorageType;
 import org.jclouds.domain.Location;
@@ -40,11 +43,19 @@ public class BlobMetadataImpl extends StorageMetadataImpl implements BlobMetadat
    public BlobMetadataImpl(String id, String name, @Nullable Location location, URI uri, String eTag,
             @Nullable Date creationDate, @Nullable Date lastModified,
             Map<String, String> userMetadata, @Nullable URI publicUri,
-            @Nullable String container, ContentMetadata contentMetadata) {
-      super(StorageType.BLOB, id, name, location, uri, eTag, creationDate, lastModified, userMetadata);
+            @Nullable String container, ContentMetadata contentMetadata, @Nullable Long size) {
+      super(StorageType.BLOB, id, name, location, uri, eTag, creationDate, lastModified, userMetadata, size);
       this.publicUri = publicUri;
       this.container = container;
       this.contentMetadata = checkNotNull(contentMetadata, "contentMetadata");
+   }
+
+   @Deprecated
+   public BlobMetadataImpl(String id, String name, @Nullable Location location, URI uri, String eTag,
+            @Nullable Date creationDate, @Nullable Date lastModified,
+            Map<String, String> userMetadata, @Nullable URI publicUri,
+            @Nullable String container, ContentMetadata contentMetadata) {
+      this(id, name, location, uri, eTag, creationDate, lastModified, userMetadata, publicUri, container, contentMetadata, null);
    }
 
    /**
@@ -71,4 +82,31 @@ public class BlobMetadataImpl extends StorageMetadataImpl implements BlobMetadat
       return contentMetadata;
    }
 
+   @Override
+   public boolean equals(Object object) {
+      if (object == this) {
+         return true;
+      }
+      if (!(object instanceof BlobMetadataImpl)) {
+         return false;
+      }
+      BlobMetadataImpl that = (BlobMetadataImpl) object;
+      return super.equals(that) &&
+            Objects.equal(publicUri, that.publicUri) &&
+            Objects.equal(container, that.container) &&
+            Objects.equal(contentMetadata, that.contentMetadata);
+   }
+
+   @Override
+   public int hashCode() {
+      return Objects.hashCode(super.hashCode(), publicUri, container, contentMetadata);
+   }
+
+   @Override
+   protected ToStringHelper string() {
+      return super.string()
+            .add("publicUri", publicUri)
+            .add("container", container)
+            .add("contentMetadata", contentMetadata);
+   }
 }

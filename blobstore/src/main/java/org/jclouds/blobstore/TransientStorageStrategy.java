@@ -18,9 +18,9 @@ package org.jclouds.blobstore;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.io.BaseEncoding.base16;
-import static org.jclouds.http.Uris.uriBuilder;
 
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Date;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,7 +29,14 @@ import java.util.concurrent.ConcurrentMap;
 import javax.inject.Inject;
 
 import org.jclouds.blobstore.domain.Blob;
+import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.Blob.Factory;
+import org.jclouds.blobstore.domain.ContainerAccess;
+import org.jclouds.blobstore.domain.MutableStorageMetadata;
+import org.jclouds.blobstore.domain.StorageMetadata;
+import org.jclouds.blobstore.domain.StorageType;
+import org.jclouds.blobstore.domain.internal.MutableStorageMetadataImpl;
+import org.jclouds.blobstore.options.CreateContainerOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.blobstore.util.BlobStoreUtils;
 import org.jclouds.date.DateService;
@@ -53,7 +60,9 @@ import com.google.common.net.HttpHeaders;
 
 public class TransientStorageStrategy implements LocalStorageStrategy {
    private final ConcurrentMap<String, ConcurrentMap<String, Blob>> containerToBlobs = new ConcurrentHashMap<String, ConcurrentMap<String, Blob>>();
-   private final ConcurrentMap<String, Location> containerToLocation = new ConcurrentHashMap<String, Location>();
+   private final ConcurrentMap<String, ConcurrentMap<String, BlobAccess>> containerToBlobAccess = new ConcurrentHashMap<String, ConcurrentMap<String, BlobAccess>>();
+   private final ConcurrentMap<String, StorageMetadata> containerMetadata = new ConcurrentHashMap<String, StorageMetadata>();
+   private final ConcurrentMap<String, ContainerAccess> containerAccessMap = new ConcurrentHashMap<String, ContainerAccess>();
    private final Supplier<Location> defaultLocation;
    private final DateService dateService;
    private final Factory blobFactory;
@@ -74,24 +83,46 @@ public class TransientStorageStrategy implements LocalStorageStrategy {
    }
 
    @Override
-   public Iterable<String> getAllContainerNames() {
+   public Collection<String> getAllContainerNames() {
       return containerToBlobs.keySet();
    }
 
    @Override
-   public boolean createContainerInLocation(final String containerName, final Location location) {
+   public boolean createContainerInLocation(String containerName, Location location, CreateContainerOptions options) {
       ConcurrentMap<String, Blob> origValue = containerToBlobs.putIfAbsent(
             containerName, new ConcurrentHashMap<String, Blob>());
       if (origValue != null) {
          return false;
       }
-      containerToLocation.put(containerName, location != null ? location : defaultLocation.get());
+      containerToBlobAccess.putIfAbsent(containerName, new ConcurrentHashMap<String, BlobAccess>());
+
+      MutableStorageMetadata metadata = new MutableStorageMetadataImpl();
+      metadata.setName(containerName);
+      metadata.setType(StorageType.CONTAINER);
+      metadata.setLocation(location);
+      metadata.setCreationDate(new Date());
+      containerMetadata.put(containerName, metadata);
+
+      containerAccessMap.put(containerName, options.isPublicRead()
+            ? ContainerAccess.PUBLIC_READ : ContainerAccess.PRIVATE);
       return true;
+   }
+
+   @Override
+   public ContainerAccess getContainerAccess(String container) {
+      ContainerAccess access = containerAccessMap.get(container);
+      return access == null ? ContainerAccess.PRIVATE : access;
+   }
+
+   @Override
+   public void setContainerAccess(String container, ContainerAccess access) {
+      containerAccessMap.put(container, access);
    }
 
    @Override
    public void deleteContainer(final String containerName) {
       containerToBlobs.remove(containerName);
+      containerToBlobAccess.remove(containerName);
    }
 
    @Override
@@ -103,6 +134,11 @@ public class TransientStorageStrategy implements LocalStorageStrategy {
    public void clearContainer(String containerName, ListContainerOptions options) {
       // TODO implement options
       containerToBlobs.get(containerName).clear();
+   }
+
+   @Override
+   public StorageMetadata getContainerMetadata(String container) {
+      return containerMetadata.get(container);
    }
 
    @Override
@@ -129,6 +165,12 @@ public class TransientStorageStrategy implements LocalStorageStrategy {
       HashingInputStream input = new HashingInputStream(Hashing.md5(), blob.getPayload().openStream());
       try {
          payload = ByteStreams.toByteArray(input);
+         long actualSize = payload.length;
+         Long expectedSize = blob.getMetadata().getContentMetadata().getContentLength();
+         if (expectedSize != null && actualSize != expectedSize) {
+            throw new IOException("Content-Length mismatch, actual: " + actualSize +
+                  " expected: " + expectedSize);
+         }
          actualHashCode = input.hash();
          HashCode expectedHashCode = blob.getPayload().getContentMetadata().getContentMD5AsHashCode();
          if (expectedHashCode != null && !actualHashCode.equals(expectedHashCode)) {
@@ -141,7 +183,9 @@ public class TransientStorageStrategy implements LocalStorageStrategy {
 
       Blob newBlob = createUpdatedCopyOfBlobInContainer(containerName, blob, payload, actualHashCode);
       Map<String, Blob> map = containerToBlobs.get(containerName);
-      map.put(newBlob.getMetadata().getName(), newBlob);
+      String blobName = newBlob.getMetadata().getName();
+      map.put(blobName, newBlob);
+      containerToBlobAccess.get(containerName).put(blobName, BlobAccess.PRIVATE);
       return base16().lowerCase().encode(actualHashCode.asBytes());
    }
 
@@ -153,8 +197,30 @@ public class TransientStorageStrategy implements LocalStorageStrategy {
    }
 
    @Override
+   public BlobAccess getBlobAccess(String containerName, String blobName) {
+      Map<String, BlobAccess> map = containerToBlobAccess.get(containerName);
+      if (map == null) {
+         throw new ContainerNotFoundException(containerName, "in getBlobAccess");
+      }
+      BlobAccess access = map.get(blobName);
+      if (access == null) {
+         throw new KeyNotFoundException(containerName, blobName, "in getBlobAccess");
+      }
+      return access;
+   }
+
+   @Override
+   public void setBlobAccess(String containerName, String blobName, BlobAccess access) {
+      Map<String, BlobAccess> map = containerToBlobAccess.get(containerName);
+      if (map == null) {
+         throw new ContainerNotFoundException(containerName, "in setBlobAccess");
+      }
+      map.put(blobName, access);
+   }
+
+   @Override
    public Location getLocation(final String containerName) {
-      return containerToLocation.get(containerName);
+      return containerMetadata.get(containerName).getLocation();
    }
 
    @Override
@@ -171,12 +237,12 @@ public class TransientStorageStrategy implements LocalStorageStrategy {
       MutableContentMetadata oldMd = in.getPayload().getContentMetadata();
       HttpUtils.copy(oldMd, payload.getContentMetadata());
       payload.getContentMetadata().setContentMD5(contentMd5);
+      payload.getContentMetadata().setContentLength((long) input.length);
       Blob blob = blobFactory.create(BlobStoreUtils.copy(in.getMetadata()));
       blob.setPayload(payload);
       blob.getMetadata().setContainer(containerName);
-      blob.getMetadata().setUri(
-            uriBuilder(new StringBuilder("mem://").append(containerName)).path(in.getMetadata().getName()).build());
       blob.getMetadata().setLastModified(new Date());
+      blob.getMetadata().setSize((long) input.length);
       String eTag = base16().lowerCase().encode(contentMd5.asBytes());
       blob.getMetadata().setETag(eTag);
       // Set HTTP headers to match metadata

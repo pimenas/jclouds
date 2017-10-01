@@ -18,14 +18,17 @@ package org.jclouds.http.internal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Throwables.propagate;
+import static org.jclouds.Constants.PROPERTY_IDEMPOTENT_METHODS;
 import static org.jclouds.http.HttpUtils.checkRequestHasContentLengthOrChunkedEncoding;
+import static org.jclouds.http.HttpUtils.releasePayload;
 import static org.jclouds.http.HttpUtils.wirePayloadIfEnabled;
 import static org.jclouds.util.Throwables2.getFirstThrowableOfType;
 
 import java.io.IOException;
+import java.net.ProtocolException;
+import java.util.Set;
 
 import javax.annotation.Resource;
-import javax.inject.Inject;
 import javax.inject.Named;
 
 import org.jclouds.Constants;
@@ -41,6 +44,9 @@ import org.jclouds.http.handlers.DelegatingErrorHandler;
 import org.jclouds.http.handlers.DelegatingRetryHandler;
 import org.jclouds.io.ContentMetadataCodec;
 import org.jclouds.logging.Logger;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableSet;
 
 public abstract class BaseHttpCommandExecutorService<Q> implements HttpCommandExecutorService {
    protected final HttpUtils utils;
@@ -58,16 +64,19 @@ public abstract class BaseHttpCommandExecutorService<Q> implements HttpCommandEx
 
    protected final HttpWire wire;
 
-   @Inject
+   private final Set<String> idempotentMethods;
+
    protected BaseHttpCommandExecutorService(HttpUtils utils, ContentMetadataCodec contentMetadataCodec,
          DelegatingRetryHandler retryHandler, IOExceptionRetryHandler ioRetryHandler,
-         DelegatingErrorHandler errorHandler, HttpWire wire) {
+         DelegatingErrorHandler errorHandler, HttpWire wire,
+         @Named(PROPERTY_IDEMPOTENT_METHODS) String idempotentMethods) {
       this.utils = checkNotNull(utils, "utils");
       this.contentMetadataCodec = checkNotNull(contentMetadataCodec, "contentMetadataCodec");
       this.retryHandler = checkNotNull(retryHandler, "retryHandler");
       this.ioRetryHandler = checkNotNull(ioRetryHandler, "ioRetryHandler");
       this.errorHandler = checkNotNull(errorHandler, "errorHandler");
       this.wire = checkNotNull(wire, "wire");
+      this.idempotentMethods = ImmutableSet.copyOf(idempotentMethods.split(","));
    }
 
    @Override
@@ -104,7 +113,7 @@ public abstract class BaseHttpCommandExecutorService<Q> implements HttpCommandEx
             }
          } catch (Exception e) {
             IOException ioe = getFirstThrowableOfType(e, IOException.class);
-            if (ioe != null && ioRetryHandler.shouldRetryRequest(command, ioe)) {
+            if (ioe != null && shouldContinue(command, ioe)) {
                continue;
             }
             command.setException(new HttpResponseException(e.getMessage() + " connecting to "
@@ -120,20 +129,48 @@ public abstract class BaseHttpCommandExecutorService<Q> implements HttpCommandEx
       return response;
    }
 
-   private boolean shouldContinue(HttpCommand command, HttpResponse response) {
+   @VisibleForTesting
+   boolean shouldContinue(HttpCommand command, HttpResponse response) {
       boolean shouldContinue = false;
       if (retryHandler.shouldRetryRequest(command, response)) {
          shouldContinue = true;
       } else {
          errorHandler.handleError(command, response);
       }
+      // At this point we are going to send a new request or we have just handled the error, so
+      // we should make sure that any open stream is closed.
+      releasePayload(response);
       return shouldContinue;
+   }
+
+   boolean shouldContinue(HttpCommand command, IOException response) {
+      // Even though Java does not want to handle it this way,
+      // treat a Protocol Exception on PUT with 100-Continue as a case of Unauthorized (and attempt to retry)
+      if (command.getCurrentRequest().getMethod().equals("PUT")
+            && command.getCurrentRequest().getHeaders().containsEntry("Expect", "100-continue")
+            && response instanceof ProtocolException
+            && response.getMessage().equals("Server rejected operation")
+            ) {
+         logger.debug("Caught a protocol exception on a 100-continue PUT request. Attempting to retry.");
+         return isIdempotent(command) && retryHandler.shouldRetryRequest(command, HttpResponse.builder().statusCode(401).message("Unauthorized").build());
+      }
+      return isIdempotent(command) && ioRetryHandler.shouldRetryRequest(command, response);
+   }
+
+   private boolean isIdempotent(HttpCommand command) {
+      String method = command.getCurrentRequest().getMethod();
+      if (!idempotentMethods.contains(method)) {
+         logger.error("Command not considered safe to retry because request method is %1$s: %2$s", method, command);
+         return false;
+      } else {
+         return true;
+      }
    }
 
    protected abstract Q convert(HttpRequest request) throws IOException, InterruptedException;
 
    protected abstract HttpResponse invoke(Q nativeRequest) throws IOException, InterruptedException;
 
-   protected abstract void cleanup(Q nativeResponse);
+   protected abstract void cleanup(Q nativeRequest);
 
 }

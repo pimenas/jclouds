@@ -19,8 +19,10 @@ package org.jclouds.rest.internal;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
 import static com.google.inject.name.Names.named;
+import static org.jclouds.Constants.PROPERTY_IDEMPOTENT_METHODS;
 import static org.jclouds.Constants.PROPERTY_MAX_RETRIES;
 import static org.jclouds.Constants.PROPERTY_USER_THREADS;
+import static org.jclouds.concurrent.config.ExecutorServiceModule.createSimpleTimeLimiter;
 import static org.testng.Assert.assertEquals;
 
 import java.io.IOException;
@@ -79,7 +81,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteSource;
 import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.SimpleTimeLimiter;
 import com.google.common.util.concurrent.TimeLimiter;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
@@ -191,8 +192,9 @@ public abstract class BaseRestApiExpectTest<S> {
       @Inject
       public ExpectHttpCommandExecutorService(Function<HttpRequest, HttpResponse> fn, HttpUtils utils,
             ContentMetadataCodec contentMetadataCodec, IOExceptionRetryHandler ioRetryHandler,
-            DelegatingRetryHandler retryHandler, DelegatingErrorHandler errorHandler, HttpWire wire) {
-         super(utils, contentMetadataCodec, retryHandler, ioRetryHandler, errorHandler, wire);
+            DelegatingRetryHandler retryHandler, DelegatingErrorHandler errorHandler, HttpWire wire,
+            @Named(PROPERTY_IDEMPOTENT_METHODS) String idempotentMethods) {
+         super(utils, contentMetadataCodec, retryHandler, ioRetryHandler, errorHandler, wire, idempotentMethods);
          this.fn = checkNotNull(fn, "fn");
       }
 
@@ -233,7 +235,7 @@ public abstract class BaseRestApiExpectTest<S> {
       @Provides
       @Singleton
       TimeLimiter timeLimiter(@Named(PROPERTY_USER_THREADS) ListeningExecutorService userExecutor) {
-         return new SimpleTimeLimiter(userExecutor);
+         return createSimpleTimeLimiter(userExecutor);
       }
    }
 
@@ -335,7 +337,8 @@ public abstract class BaseRestApiExpectTest<S> {
                         String.format("request %s is out of range (%s)", index, requests.size())).payload(
                         Payloads.newStringPayload(renderRequest(input))).build();
             if (!httpRequestsAreEqual(input, requests.get(index))) {
-               assertEquals(renderRequest(input), renderRequest(requests.get(index)));
+               assertEquals(renderRequest(input), renderRequest(requests.get(index)),
+                  "Actual request did not match expected request " + index);
             }
             return responses.get(index);
          }

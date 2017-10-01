@@ -24,8 +24,7 @@ import javax.inject.Inject;
 import org.jclouds.aws.ec2.domain.SpotInstanceRequest;
 import org.jclouds.aws.ec2.domain.SpotInstanceRequest.Builder;
 import org.jclouds.aws.util.AWSUtils;
-import org.jclouds.date.DateCodec;
-import org.jclouds.date.DateCodecFactory;
+import org.jclouds.date.DateService;
 import org.jclouds.ec2.xml.TagSetHandler;
 import org.jclouds.http.functions.ParseSax;
 import org.jclouds.location.Region;
@@ -37,19 +36,21 @@ import com.google.common.base.Supplier;
 public class SpotInstanceHandler extends ParseSax.HandlerForGeneratedRequestWithResult<SpotInstanceRequest> {
    private StringBuilder currentText = new StringBuilder();
 
-   protected final DateCodec dateCodec;
+   protected final DateService dateService;
    protected final Supplier<String> defaultRegion;
    protected final Builder builder;
+   protected boolean inFault;
+   protected boolean inStatus;
    protected boolean inLaunchSpecification;
    protected final LaunchSpecificationHandler launchSpecificationHandler;
    protected boolean inTagSet;
    protected final TagSetHandler tagSetHandler;
 
    @Inject
-   public SpotInstanceHandler(DateCodecFactory dateCodecFactory, @Region Supplier<String> defaultRegion,
+   public SpotInstanceHandler(DateService dateService, @Region Supplier<String> defaultRegion,
          LaunchSpecificationHandler launchSpecificationHandler, TagSetHandler tagSetHandler,
          SpotInstanceRequest.Builder builder) {
-      this.dateCodec = dateCodecFactory.iso8601();
+      this.dateService = dateService;
       this.defaultRegion = defaultRegion;
       this.launchSpecificationHandler = launchSpecificationHandler;
       this.tagSetHandler = tagSetHandler;
@@ -73,6 +74,10 @@ public class SpotInstanceHandler extends ParseSax.HandlerForGeneratedRequestWith
          inLaunchSpecification = true;
       } else if (equalsOrSuffix(qName, "tagSet")) {
          inTagSet = true;
+      } else if (equalsOrSuffix(qName, "fault")) {
+         inFault = true;
+      } else if (equalsOrSuffix(qName, "status")) {
+         inStatus = true;
       }
       if (inLaunchSpecification) {
           launchSpecificationHandler.startElement(uri, name, qName, attrs);
@@ -97,6 +102,14 @@ public class SpotInstanceHandler extends ParseSax.HandlerForGeneratedRequestWith
          launchSpecificationHandler.endElement(uri, name, qName);
       }
 
+      if (qName.equals("fault")) {
+         inFault = false;
+      }
+
+      if (qName.equals("status")) {
+         inStatus = false;
+      }
+
       if (qName.equals("spotInstanceRequestId")) {
          builder.id(currentOrNull(currentText));
       } else if (qName.equals("instanceId")) {
@@ -107,10 +120,6 @@ public class SpotInstanceHandler extends ParseSax.HandlerForGeneratedRequestWith
          builder.availabilityZoneGroup(currentOrNull(currentText));
       } else if (qName.equals("launchGroup")) {
          builder.launchGroup(currentOrNull(currentText));
-      } else if (qName.equals("code")) {
-         builder.faultCode(currentOrNull(currentText));
-      } else if (qName.equals("message")) {
-         builder.faultMessage(currentOrNull(currentText));
       } else if (qName.equals("spotPrice")) {
          String price = currentOrNull(currentText);
          if (price != null)
@@ -128,15 +137,39 @@ public class SpotInstanceHandler extends ParseSax.HandlerForGeneratedRequestWith
       } else if (qName.equals("createTime")) {
          String createTime = currentOrNull(currentText);
          if (createTime != null)
-            builder.createTime(dateCodec.toDate(createTime));
+            builder.createTime(dateService.iso8601DateOrSecondsDateParse(createTime));
       } else if (qName.equals("productDescription")) {
          builder.productDescription(currentOrNull(currentText));
+      } else if (inFault) {
+         if (qName.equals("code")) {
+            builder.faultCode(currentOrNull(currentText));
+         } else if (qName.equals("message")) {
+            builder.faultMessage(currentOrNull(currentText));
+         }
+      } else if (inStatus) {
+         if (qName.equals("code")) {
+            builder.statusCode(currentOrNull(currentText));
+         } else if (qName.equals("message")) {
+            builder.statusMessage(currentOrNull(currentText));
+         } else if (qName.equals("updateTime")) {
+            String updateTime = currentOrNull(currentText);
+            if (updateTime != null)
+               builder.statusUpdateTime(dateService.iso8601DateOrSecondsDateParse(updateTime));
+         }
+      } else if (qName.equals("validFrom")) {
+         String validFrom = currentOrNull(currentText);
+         if (validFrom != null)
+            builder.validFrom(dateService.iso8601DateOrSecondsDateParse(validFrom));
+      } else if (qName.equals("validUntil")) {
+         String validUntil = currentOrNull(currentText);
+         if (validUntil != null)
+            builder.validUntil(dateService.iso8601DateOrSecondsDateParse(validUntil));
       }
       currentText.setLength(0);
    }
 
    @Override
-   public void characters(char ch[], int start, int length) {
+   public void characters(char[] ch, int start, int length) {
       if (inLaunchSpecification) {
          launchSpecificationHandler.characters(ch, start, length);
       } else if (inTagSet) {

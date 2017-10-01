@@ -31,6 +31,9 @@ public interface BlobProperties extends Comparable<BlobProperties> {
     */
    BlobType getType();
 
+   /** @return access tier or null if not set */
+   AccessTier getTier();
+
    LeaseStatus getLeaseStatus();
 
    URI getUrl();

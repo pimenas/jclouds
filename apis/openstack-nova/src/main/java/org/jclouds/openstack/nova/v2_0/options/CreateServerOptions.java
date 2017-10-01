@@ -16,11 +16,10 @@
  */
 package org.jclouds.openstack.nova.v2_0.options;
 
-import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Objects.equal;
+import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Strings.emptyToNull;
 import static com.google.common.io.BaseEncoding.base64;
 
@@ -39,10 +38,11 @@ import org.jclouds.rest.MapBinder;
 import org.jclouds.rest.binders.BindToJsonPayload;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.collect.ForwardingObject;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -62,8 +62,6 @@ public class CreateServerOptions implements MapBinder {
                path.getBytes().length < 255,
                String.format("maximum length of path is 255 bytes.  Path specified %s is %d bytes", path,
                      path.getBytes().length));
-         checkArgument(contents.length < 10 * 1024,
-               String.format("maximum size of the file is 10KB.  Contents specified is %d bytes", contents.length));
       }
 
       public String getContents() {
@@ -106,8 +104,8 @@ public class CreateServerOptions implements MapBinder {
    private List<File> personality = Lists.newArrayList();
    private byte[] userData;
    private String diskConfig;
-   private Set<String> networks = ImmutableSet.of();
-   private Set<Network> novaNetworks = ImmutableSet.of();
+   private List<String> networks = ImmutableList.of();
+   private List<Network> novaNetworks = ImmutableList.of();
    private String availabilityZone;
    private boolean configDrive;
    private Set<BlockDeviceMapping> blockDeviceMappings = ImmutableSet.of();
@@ -138,6 +136,13 @@ public class CreateServerOptions implements MapBinder {
             configDrive, blockDeviceMappings);
    }
 
+   protected String formatPossiblyGzipped(final byte [] data) {
+      if (data.length > 10 && data[0] == 31 && data[1] == -117) {
+         return String.format("<gzipped data (%d bytes)>", data.length);
+      }
+      return new String(data);
+   }
+
    protected ToStringHelper string() {
       ToStringHelper toString = MoreObjects.toStringHelper(this);
       toString.add("keyName", keyName);
@@ -151,7 +156,7 @@ public class CreateServerOptions implements MapBinder {
          toString.add("adminPassPresent", true);
       if (diskConfig != null)
          toString.add("diskConfig", diskConfig);
-      toString.add("userData", userData == null ? null : new String(userData));
+      toString.add("userData", userData == null ? null : formatPossiblyGzipped(userData));
       if (!networks.isEmpty())
          toString.add("networks", networks);
       toString.add("availabilityZone", availabilityZone == null ? null : availabilityZone);
@@ -181,7 +186,7 @@ public class CreateServerOptions implements MapBinder {
       String user_data;
       @Named("OS-DCF:diskConfig")
       String diskConfig;
-      Set<Map<String, String>> networks;
+      List<Map<String, String>> networks;
       @Named("config_drive")
       String configDrive;
       @Named("block_device_mapping_v2")
@@ -225,7 +230,7 @@ public class CreateServerOptions implements MapBinder {
          server.diskConfig = diskConfig;
       }
       if (!networks.isEmpty() || !novaNetworks.isEmpty()) {
-         server.networks = Sets.newLinkedHashSet(); // ensures ordering is preserved - helps testing and more intuitive for users.
+         server.networks = Lists.newArrayList(); // ensures ordering is preserved - helps testing and more intuitive for users.
          for (Network network : novaNetworks) {
             // Avoid serializing null values, which are common here.
             ImmutableMap.Builder<String, String> networkMap = new ImmutableMap.Builder<String, String>();
@@ -248,7 +253,7 @@ public class CreateServerOptions implements MapBinder {
          server.blockDeviceMappings = blockDeviceMappings;
       }
 
-      return bindToRequest(request, ImmutableMap.of("server", server));
+      return bindToRequest(request, (Object) ImmutableMap.of("server", server));
    }
 
    private static class NamedThingy extends ForwardingObject {
@@ -272,18 +277,19 @@ public class CreateServerOptions implements MapBinder {
     * provide a minimal amount of launch-time personalization. If significant
     * customization is required, a custom image should be created. The max size
     * of the file path data is 255 bytes while the max size of the file contents
-    * is 10KB. Note that the file contents should be encoded as a Base64 string
-    * and the 10KB limit refers to the number of bytes in the decoded data not
-    * the number of characters in the encoded data. The maximum number of file
-    * path/content pairs that can be supplied is 5. Any existing files that
-    * match the specified file will be renamed to include the extension bak
-    * followed by a time stamp. For example, the file /etc/passwd will be backed
+    * is determined by provider quotas(default size is 10KB). Note that the file
+    * contents should be encoded as a Base64 string and the size limit refers to
+    * the number of bytes in the decoded data not the number of characters in the
+    * encoded data. The maximum number of file path/content pairs that can be supplied
+    * is determined by provider quotas(default is 5). Any existing files that match
+    * the specified file will be renamed to include the extension bak followed by a
+    * time stamp.
+    * For example, the file /etc/passwd will be backed
     * up as /etc/passwd.bak.1246036261.5785. All files will have root and the
     * root group as owner and group owner, respectively and will allow user and
     * group read access only (-r--r-----).
     */
    public CreateServerOptions writeFileToPath(byte[] contents, String path) {
-      checkState(personality.size() < 5, "maximum number of files allowed is 5");
       personality.add(new File(path, contents));
       return this;
    }
@@ -362,9 +368,6 @@ public class CreateServerOptions implements MapBinder {
       return securityGroupNames(ImmutableSet.copyOf(checkNotNull(securityGroupNames, "securityGroupNames")));
    }
 
-   /**
-    * @see #getSecurityGroupNames()
-    */
    public CreateServerOptions securityGroupNames(Iterable<String> securityGroupNames) {
       for (String groupName : checkNotNull(securityGroupNames, "securityGroupNames"))
          checkNotNull(emptyToNull(groupName), "all security groups must be non-empty");
@@ -384,7 +387,7 @@ public class CreateServerOptions implements MapBinder {
     * @see #getNetworks()
     */
    public CreateServerOptions networks(Iterable<String> networks) {
-      this.networks = ImmutableSet.copyOf(networks);
+      this.networks = ImmutableList.copyOf(networks);
       return this;
    }
 
@@ -393,7 +396,7 @@ public class CreateServerOptions implements MapBinder {
     * Overwrites networks supplied by {@link #networks(Iterable)}
     */
    public CreateServerOptions novaNetworks(Iterable<Network> networks) {
-      this.novaNetworks = ImmutableSet.copyOf(networks);
+      this.novaNetworks = ImmutableList.copyOf(networks);
       return this;
    }
 
@@ -401,7 +404,7 @@ public class CreateServerOptions implements MapBinder {
     * @see #getNetworks()
     */
    public CreateServerOptions networks(String... networks) {
-      return networks(ImmutableSet.copyOf(networks));
+      return networks(ImmutableList.copyOf(networks));
    }
 
    /**
@@ -439,20 +442,20 @@ public class CreateServerOptions implements MapBinder {
    /**
     * Get custom networks specified for the server.
     *
-    * @return A set of uuids defined by Neutron (previously Quantum)
+    * @return A list of uuids defined by Neutron (previously Quantum)
     * @see <a href="https://wiki.openstack.org/wiki/Neutron/APIv2-specification#Network">Neutron Networks<a/>
     */
-   public Set<String> getNetworks() {
+   public List<String> getNetworks() {
       return networks;
    }
 
    /**
     * Get custom networks specified for the server.
     *
-    * @return A set of uuids defined by Neutron (previously Quantum)
+    * @return A list of uuids defined by Neutron (previously Quantum)
     * @see <a href="https://wiki.openstack.org/wiki/Neutron/APIv2-specification#Network">Neutron Networks<a/>
     */
-   public Set<Network> getNovaNetworks() {
+   public List<Network> getNovaNetworks() {
       return novaNetworks;
    }
 

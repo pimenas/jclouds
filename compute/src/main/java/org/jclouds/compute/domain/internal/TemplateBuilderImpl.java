@@ -16,48 +16,6 @@
  */
 package org.jclouds.compute.domain.internal;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.base.Predicates.and;
-import static com.google.common.collect.Iterables.filter;
-import static com.google.common.collect.Iterables.find;
-import static com.google.common.collect.Iterables.size;
-import static com.google.common.collect.Iterables.transform;
-import static com.google.common.collect.Iterables.tryFind;
-import static com.google.common.collect.Lists.newArrayList;
-import static java.lang.String.format;
-import static org.jclouds.compute.util.ComputeServiceUtils.getCores;
-import static org.jclouds.compute.util.ComputeServiceUtils.getCoresAndSpeed;
-import static org.jclouds.compute.util.ComputeServiceUtils.getSpace;
-
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.Set;
-import java.util.regex.Pattern;
-
-import javax.annotation.Resource;
-import javax.inject.Inject;
-import javax.inject.Named;
-import javax.inject.Provider;
-
-import org.jclouds.collect.Memoized;
-import org.jclouds.compute.domain.ComputeMetadata;
-import org.jclouds.compute.domain.Hardware;
-import org.jclouds.compute.domain.Image;
-import org.jclouds.compute.domain.OperatingSystem;
-import org.jclouds.compute.domain.OsFamily;
-import org.jclouds.compute.domain.Template;
-import org.jclouds.compute.domain.TemplateBuilder;
-import org.jclouds.compute.domain.TemplateBuilderSpec;
-import org.jclouds.compute.options.TemplateOptions;
-import org.jclouds.compute.reference.ComputeServiceConstants;
-import org.jclouds.compute.strategy.GetImageStrategy;
-import org.jclouds.compute.suppliers.ImageCacheSupplier;
-import org.jclouds.domain.Location;
-import org.jclouds.logging.Logger;
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.MoreObjects;
@@ -72,6 +30,47 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Ordering;
 import com.google.common.primitives.Doubles;
+import org.jclouds.collect.Memoized;
+import org.jclouds.compute.domain.ComputeMetadata;
+import org.jclouds.compute.domain.Hardware;
+import org.jclouds.compute.domain.Image;
+import org.jclouds.compute.domain.OperatingSystem;
+import org.jclouds.compute.domain.OsFamily;
+import org.jclouds.compute.domain.Template;
+import org.jclouds.compute.domain.TemplateBuilder;
+import org.jclouds.compute.domain.TemplateBuilderSpec;
+import org.jclouds.compute.options.TemplateOptions;
+import org.jclouds.compute.predicates.ImagePredicates;
+import org.jclouds.compute.reference.ComputeServiceConstants;
+import org.jclouds.compute.suppliers.ImageCacheSupplier;
+import org.jclouds.domain.Location;
+import org.jclouds.logging.Logger;
+
+import javax.annotation.Resource;
+import javax.inject.Inject;
+import javax.inject.Named;
+import javax.inject.Provider;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Set;
+import java.util.regex.Pattern;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.base.Predicates.and;
+import static com.google.common.collect.Iterables.filter;
+import static com.google.common.collect.Iterables.find;
+import static com.google.common.collect.Iterables.size;
+import static com.google.common.collect.Iterables.transform;
+import static com.google.common.collect.Iterables.tryFind;
+import static com.google.common.collect.Lists.newArrayList;
+import static java.lang.String.format;
+import static org.jclouds.compute.util.ComputeServiceUtils.getCores;
+import static org.jclouds.compute.util.ComputeServiceUtils.getCoresAndSpeed;
+import static org.jclouds.compute.util.ComputeServiceUtils.getSpace;
 
 public class TemplateBuilderImpl implements TemplateBuilder {
    @Resource
@@ -84,7 +83,6 @@ public class TemplateBuilderImpl implements TemplateBuilder {
    protected final Supplier<Location> defaultLocation;
    protected final Provider<TemplateOptions> optionsProvider;
    protected final Provider<TemplateBuilder> defaultTemplateProvider;
-   protected final GetImageStrategy getImageStrategy;
 
    @VisibleForTesting
    protected Location location;
@@ -128,19 +126,21 @@ public class TemplateBuilderImpl implements TemplateBuilder {
    protected boolean fastest;
    @VisibleForTesting
    protected TemplateOptions options;
+   @VisibleForTesting
+   protected Boolean forceCacheReload;
 
    @Inject
    protected TemplateBuilderImpl(@Memoized Supplier<Set<? extends Location>> locations,
-         ImageCacheSupplier images, @Memoized Supplier<Set<? extends Hardware>> hardwares,
+         @Memoized Supplier<Set<? extends Image>> images, @Memoized Supplier<Set<? extends Hardware>> hardwares,
          Supplier<Location> defaultLocation, @Named("DEFAULT") Provider<TemplateOptions> optionsProvider,
-         @Named("DEFAULT") Provider<TemplateBuilder> defaultTemplateProvider, GetImageStrategy getImageStrategy) {
+         @Named("DEFAULT") Provider<TemplateBuilder> defaultTemplateProvider) {
       this.locations = checkNotNull(locations, "locations");
-      this.images = checkNotNull(images, "images");
+      checkArgument(images instanceof ImageCacheSupplier, "an instance of the ImageCacheSupplier is needed");
+      this.images = ImageCacheSupplier.class.cast(images);
       this.hardwares = checkNotNull(hardwares, "hardwares");
       this.defaultLocation = checkNotNull(defaultLocation, "defaultLocation");
       this.optionsProvider = checkNotNull(optionsProvider, "optionsProvider");
       this.defaultTemplateProvider = checkNotNull(defaultTemplateProvider, "defaultTemplateProvider");
-      this.getImageStrategy = checkNotNull(getImageStrategy, "getImageStrategy");
    }
 
    static Predicate<Hardware> supportsImagesPredicate(final Iterable<? extends Image> images) {
@@ -174,26 +174,6 @@ public class TemplateBuilderImpl implements TemplateBuilder {
       }
 
    });
-
-   private final Predicate<Image> idPredicate = new Predicate<Image>() {
-      @Override
-      public boolean apply(Image input) {
-         boolean returnVal = true;
-         if (imageId != null) {
-            returnVal = imageId.equals(input.getId());
-            // match our input params so that the later predicates pass.
-            if (returnVal) {
-               fromImage(input);
-            }
-         }
-         return returnVal;
-      }
-
-      @Override
-      public String toString() {
-         return "imageId(" + imageId + ")";
-      }
-   };
 
    private final Predicate<OperatingSystem> osFamilyPredicate = new Predicate<OperatingSystem>() {
 
@@ -366,7 +346,6 @@ public class TemplateBuilderImpl implements TemplateBuilder {
          return "imageDescription(" + imageDescription + ")";
       }
    };
-
    private final Predicate<Hardware> hardwareIdPredicate = new Predicate<Hardware>() {
       @Override
       public boolean apply(Hardware input) {
@@ -481,6 +460,12 @@ public class TemplateBuilderImpl implements TemplateBuilder {
    static final Ordering<Hardware> BY_CORES_ORDERING = new Ordering<Hardware>() {
       public int compare(Hardware left, Hardware right) {
          return Doubles.compare(getCoresAndSpeed(left), getCoresAndSpeed(right));
+      }
+   };
+   static final Ordering<Hardware> NOT_DEPRECATED_ORDERING = new Ordering<Hardware>() {
+      public int compare(Hardware left, Hardware right) {
+         // we take max so deprecated items come first
+         return ComparisonChain.start().compareTrueFirst(left.isDeprecated(), right.isDeprecated()).result();
       }
    };
    static final Ordering<Image> DEFAULT_IMAGE_ORDERING = new Ordering<Image>() {
@@ -685,7 +670,7 @@ public class TemplateBuilderImpl implements TemplateBuilder {
 
       Image image = null;
       if (imageId != null) {
-         image = findImageWithId(images);
+         image = loadImageWithId(images);
          if (currentLocationWiderThan(image.getLocation()))
             this.location = image.getLocation();
       }
@@ -727,30 +712,19 @@ public class TemplateBuilderImpl implements TemplateBuilder {
       return supportedImages;
    }
 
-   private Image findImageWithId(Set<? extends Image> images) {
-      // Try to find the image in the cache and fallback to the GetImageStrategy
-      // see https://issues.apache.org/jira/browse/JCLOUDS-570
-      Optional<? extends Image> image = tryFind(images, idPredicate);
-      if (image.isPresent()) {
-         return image.get();
+   private Image loadImageWithId(Iterable<? extends Image> images) {
+      Optional<? extends Image> image = tryFind(images, ImagePredicates.idEquals(imageId));
+      if (!image.isPresent()) {
+         image = this.images.get(imageId); // Load the image from the cache, and refresh if missing
+         if (!image.isPresent()) {
+            throw throwNoSuchElementExceptionAfterLoggingImageIds(format("imageId(%s) not found", imageId), images);
+         }
       }
-
-      logger.info("Image %s not found in the image cache. Trying to get it from the provider...", imageId);
-      // Note that this will generate make a call to the provider instead of using a cache, but
-      // this will be executed rarely, only when an image is not present in the image list but
-      // it actually exists in the provider. It shouldn't be an expensive call so using a cache just for
-      // this corner case is overkill.
-      Image imageFromProvider = getImageStrategy.getImage(imageId);
-      if (imageFromProvider == null) {
-         throwNoSuchElementExceptionAfterLoggingImageIds(format("%s not found", idPredicate), images);
-      }
-      // Register the just found image in the image cache, so subsequent uses of the TemplateBuilder and
-      // the ComptueService find it.
-      this.images.registerImage(imageFromProvider);
-      return imageFromProvider;
+      fromImage(image.get());
+      return image.get();
    }
 
-   private Hardware findHardwareWithId(Set<? extends Hardware> hardwaresToSearch) {
+   protected Hardware findHardwareWithId(Set<? extends Hardware> hardwaresToSearch) {
       Hardware hardware;
       // TODO: switch to GetHardwareStrategy in version 1.5
       hardware = tryFind(hardwaresToSearch, hardwareIdPredicate).orNull();
@@ -819,6 +793,7 @@ public class TemplateBuilderImpl implements TemplateBuilder {
          hardwareOrdering = hardwareOrdering.reverse();
       if (fastest)
          hardwareOrdering = Ordering.compound(ImmutableList.of(BY_CORES_ORDERING, hardwareOrdering));
+      hardwareOrdering = Ordering.compound(ImmutableList.of(NOT_DEPRECATED_ORDERING, hardwareOrdering));
       return hardwareOrdering;
    }
 
@@ -849,10 +824,8 @@ public class TemplateBuilderImpl implements TemplateBuilder {
             logger.trace("<<   matched images(%s)", transform(matchingImages, imageToId));
          return imageChooser().apply(matchingImages);
       } catch (NoSuchElementException exception) {
-         throwNoSuchElementExceptionAfterLoggingImageIds(format("no image matched params: %s", toString()),
-                  supportedImages);
-         assert false;
-         return null;
+         throw throwNoSuchElementExceptionAfterLoggingImageIds(format("no image matched params: %s", toString()),
+               supportedImages);
       }
    }
 
@@ -878,7 +851,7 @@ public class TemplateBuilderImpl implements TemplateBuilder {
       return maxes;
    }
    protected Set<? extends Image> getImages() {
-      return images.get();
+      return forceCacheReload != null && forceCacheReload ? images.rebuildCache() : images.get();
    }
 
    private Predicate<Image> buildImagePredicate() {
@@ -1150,6 +1123,7 @@ public class TemplateBuilderImpl implements TemplateBuilder {
       toString.add("os64Bit", os64Bit);
       toString.add("hardwareId", hardwareId);
       toString.add("hypervisor", hypervisor);
+      toString.add("forceCacheReload", forceCacheReload);
       return toString;
    }
 
@@ -1169,4 +1143,11 @@ public class TemplateBuilderImpl implements TemplateBuilder {
       return from(TemplateBuilderSpec.parse(spec));
    }
 
+   @Override
+   public TemplateBuilder forceCacheReload() {
+      this.forceCacheReload = true;
+      return this;
+   }
+
+   
 }

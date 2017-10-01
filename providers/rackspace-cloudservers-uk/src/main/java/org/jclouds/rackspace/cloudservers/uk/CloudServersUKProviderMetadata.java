@@ -16,6 +16,7 @@
  */
 package org.jclouds.rackspace.cloudservers.uk;
 
+import static org.jclouds.compute.config.ComputeServiceProperties.TEMPLATE;
 import static org.jclouds.location.reference.LocationConstants.ISO3166_CODES;
 import static org.jclouds.location.reference.LocationConstants.PROPERTY_REGION;
 import static org.jclouds.location.reference.LocationConstants.PROPERTY_REGIONS;
@@ -26,7 +27,6 @@ import java.util.Properties;
 
 import org.jclouds.openstack.keystone.v2_0.config.KeystoneAuthenticationModule.RegionModule;
 import org.jclouds.openstack.nova.v2_0.NovaApiMetadata;
-import org.jclouds.openstack.nova.v2_0.config.NovaHttpApiModule;
 import org.jclouds.openstack.nova.v2_0.config.NovaParserModule;
 import org.jclouds.providers.ProviderMetadata;
 import org.jclouds.providers.internal.BaseProviderMetadata;
@@ -34,13 +34,16 @@ import org.jclouds.rackspace.cloudidentity.v2_0.config.CloudIdentityAuthenticati
 import org.jclouds.rackspace.cloudidentity.v2_0.config.CloudIdentityAuthenticationModule;
 import org.jclouds.rackspace.cloudidentity.v2_0.config.CloudIdentityCredentialTypes;
 import org.jclouds.rackspace.cloudservers.uk.config.CloudServersUKComputeServiceContextModule;
+import org.jclouds.rackspace.cloudservers.uk.config.CloudServersUKHttpApiModule;
 
+import com.google.auto.service.AutoService;
 import com.google.common.collect.ImmutableSet;
 import com.google.inject.Module;
 
 /**
- * Implementation of {@link org.jclouds.types.ProviderMetadata} for Rackspace Next Generation Cloud Servers.
+ * Implementation of {@link ProviderMetadata} for Rackspace Next Generation Cloud Servers.
  */
+@AutoService(ProviderMetadata.class)
 public class CloudServersUKProviderMetadata extends BaseProviderMetadata {
 
    public static Builder builder() {
@@ -65,6 +68,7 @@ public class CloudServersUKProviderMetadata extends BaseProviderMetadata {
       properties.setProperty(CREDENTIAL_TYPE, CloudIdentityCredentialTypes.API_KEY_CREDENTIALS);
       properties.setProperty(PROPERTY_REGIONS, "LON");
       properties.setProperty(PROPERTY_REGION + ".LON." + ISO3166_CODES, "GB-SLG");
+      properties.setProperty(TEMPLATE, "imageNameMatches=.*Ubuntu.*");
       return properties;
    }
 
@@ -85,7 +89,7 @@ public class CloudServersUKProviderMetadata extends BaseProviderMetadata {
                                               .add(CloudIdentityAuthenticationModule.class)
                                               .add(RegionModule.class)
                                               .add(NovaParserModule.class)
-                                              .add(NovaHttpApiModule.class)
+                                              .add(CloudServersUKHttpApiModule.class)
                                               .add(CloudServersUKComputeServiceContextModule.class).build())
                   .build())
          .homepage(URI.create("http://www.rackspace.co.uk/opencloud"))

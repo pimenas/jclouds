@@ -17,7 +17,6 @@
 package org.jclouds.aws.ec2.features;
 
 import static com.google.common.collect.Iterables.getOnlyElement;
-import static com.google.common.collect.Lists.newArrayList;
 import static com.google.common.collect.Sets.newTreeSet;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.jclouds.util.Predicates2.retry;
@@ -25,7 +24,6 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.fail;
 
-import java.util.ArrayList;
 import java.util.Set;
 import java.util.SortedSet;
 
@@ -62,8 +60,7 @@ import com.google.inject.Module;
  */
 @Test(groups = "live", singleThreaded = true, testName = "PlacementGroupApiLiveTest")
 public class PlacementGroupApiLiveTest extends BaseComputeServiceContextLiveTest {
-   ArrayList<String> supportedRegions = newArrayList(Region.US_EAST_1, Region.US_WEST_2, Region.EU_WEST_1,
-           Region.US_WEST_2, Region.AP_NORTHEAST_1, Region.AP_SOUTHEAST_1, Region.AP_SOUTHEAST_2);
+   private final Set<String> supportedRegions = Region.DEFAULT_REGIONS;
 
    public PlacementGroupApiLiveTest() {
       provider = "aws-ec2";
@@ -136,10 +133,10 @@ public class PlacementGroupApiLiveTest extends BaseComputeServiceContextLiveTest
          assertNotNull(allResults);
          if (allResults.size() >= 1) {
             PlacementGroup group = allResults.last();
-            SortedSet<PlacementGroup> result = newTreeSet(client.getPlacementGroupApi().get()
+            client.getPlacementGroupApi().get()
                     .describePlacementGroupsInRegionWithFilter(region,
                             ImmutableMultimap.<String, String>builder()
-                                    .put("invalid-filter", group.getName()).build()));
+                                    .put("invalid-filter", group.getName()).build());
          }
       }
    }
@@ -168,13 +165,13 @@ public class PlacementGroupApiLiveTest extends BaseComputeServiceContextLiveTest
       assert availableTester.apply(group) : group;
    }
 
-   public void testStartCCInstance() throws Exception {
+   @SuppressWarnings("CheckReturnValue")
+   public void testStartHS1Instance() throws Exception {
 
       Template template = view.getComputeService().templateBuilder()
-               .fromHardware(EC2HardwareBuilder.cc2_8xlarge().build()).osFamily(OsFamily.AMZN_LINUX).build();
+               .fromHardware(EC2HardwareBuilder.hs1_8xlarge().build()).osFamily(OsFamily.AMZN_LINUX).build();
       assert template != null : "The returned template was null, but it should have a value.";
-      assertEquals(template.getHardware().getProviderId(), InstanceType.CC2_8XLARGE);
-      assertEquals(template.getImage().getUserMetadata().get("rootDeviceType"), "ebs");
+      assertEquals(template.getHardware().getProviderId(), InstanceType.HS1_8XLARGE);
       assertEquals(template.getImage().getUserMetadata().get("virtualizationType"), "hvm");
       assertEquals(template.getImage().getUserMetadata().get("hypervisor"), "xen");
 

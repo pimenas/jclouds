@@ -58,6 +58,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.cache.LoadingCache;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -135,8 +136,9 @@ public class NovaSecurityGroupExtension implements SecurityGroupExtension {
       }
 
       Set<String> groupNames = instance.getSecurityGroupNames();
-      Set<? extends SecurityGroupInRegion> rawGroups =
-              sgApi.get().list().filter(nameIn(groupNames)).transform(groupToGroupInRegion(region)).toSet();
+       final FluentIterable<org.jclouds.openstack.nova.v2_0.domain.SecurityGroup> allGroups = sgApi.get().list();
+       Set<? extends SecurityGroupInRegion> rawGroups =
+              allGroups.filter(nameIn(groupNames)).transform(groupToGroupInRegion(allGroups, region)).toSet();
 
       return ImmutableSet.copyOf(transform(filter(rawGroups, notNull()), groupConverter));
    }
@@ -153,7 +155,8 @@ public class NovaSecurityGroupExtension implements SecurityGroupExtension {
          return null;
       }
 
-      SecurityGroupInRegion rawGroup = new SecurityGroupInRegion(sgApi.get().get(groupId), region);
+      final FluentIterable<org.jclouds.openstack.nova.v2_0.domain.SecurityGroup> allGroups = sgApi.get().list();
+      SecurityGroupInRegion rawGroup = new SecurityGroupInRegion(sgApi.get().get(groupId), region, allGroups);
 
       return groupConverter.apply(rawGroup);
    }
@@ -188,14 +191,20 @@ public class NovaSecurityGroupExtension implements SecurityGroupExtension {
          return false;
       }
 
-      if (sgApi.get().get(groupId) == null) {
-         return false;
+      // Would be nice to delete the group and invalidate the cache atomically - i.e. use a mutex.
+      // Will make sure that a create operation in parallel won't see inconsistent state.
+
+      boolean deleted = sgApi.get().delete(groupId);
+
+      for (SecurityGroupInRegion cachedSg : groupCreator.asMap().values()) {
+         if (groupId.equals(cachedSg.getSecurityGroup().getId())) {
+            String groupName = cachedSg.getName();
+            groupCreator.invalidate(new RegionSecurityGroupNameAndPorts(region, groupName, ImmutableSet.<Integer>of()));
+            break;
+         }
       }
 
-      sgApi.get().delete(groupId);
-      // TODO: test this clear happens
-      groupCreator.invalidate(new RegionSecurityGroupNameAndPorts(region, groupId, ImmutableSet.<Integer> of()));
-      return true;
+      return deleted;
    }
 
    @Override
@@ -359,17 +368,20 @@ public class NovaSecurityGroupExtension implements SecurityGroupExtension {
             }
 
 
-            return sgApi.get().list().transform(groupToGroupInRegion(from)).toSet();
+             final FluentIterable<org.jclouds.openstack.nova.v2_0.domain.SecurityGroup> allGroups = sgApi.get().list();
+             return allGroups.transform(groupToGroupInRegion(allGroups, from)).toSet();
          }
 
       };
    }
 
-   protected Function<org.jclouds.openstack.nova.v2_0.domain.SecurityGroup, SecurityGroupInRegion> groupToGroupInRegion(final String region) {
+   protected Function<org.jclouds.openstack.nova.v2_0.domain.SecurityGroup, SecurityGroupInRegion> groupToGroupInRegion(
+       final Iterable<org.jclouds.openstack.nova.v2_0.domain.SecurityGroup> allGroups, final String region) {
+
       return new Function<org.jclouds.openstack.nova.v2_0.domain.SecurityGroup, SecurityGroupInRegion>() {
          @Override
          public SecurityGroupInRegion apply(org.jclouds.openstack.nova.v2_0.domain.SecurityGroup group) {
-            return new SecurityGroupInRegion(group, region);
+            return new SecurityGroupInRegion(group, region, allGroups);
          }
       };
    }

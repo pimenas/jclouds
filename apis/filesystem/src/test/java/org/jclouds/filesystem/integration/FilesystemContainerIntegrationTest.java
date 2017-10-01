@@ -17,7 +17,10 @@
 package org.jclouds.filesystem.integration;
 
 import static org.jclouds.blobstore.options.ListContainerOptions.Builder.maxResults;
+import static org.jclouds.filesystem.util.Utils.isMacOSX;
 import static org.testng.Assert.assertEquals;
+import static org.jclouds.utils.TestUtils.NO_INVOCATIONS;
+import static org.jclouds.utils.TestUtils.SINGLE_NO_ARG_INVOCATION;
 
 import java.io.IOException;
 import java.util.Properties;
@@ -26,6 +29,7 @@ import java.util.concurrent.TimeoutException;
 
 import javax.ws.rs.core.MediaType;
 
+import com.google.common.collect.ImmutableSet;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.PageSet;
@@ -34,6 +38,7 @@ import org.jclouds.blobstore.integration.internal.BaseBlobStoreIntegrationTest;
 import org.jclouds.blobstore.integration.internal.BaseContainerIntegrationTest;
 import org.jclouds.filesystem.reference.FilesystemConstants;
 import org.jclouds.filesystem.utils.TestUtils;
+import org.testng.SkipException;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
@@ -155,15 +160,37 @@ public class FilesystemContainerIntegrationTest extends BaseContainerIntegration
       super.testListContainerMaxResults();
    }
 
+   @Override
+   public void testDirectory() {
+      throw new SkipException("There is no notion of marker blobs in the file system blob store");
+   }
+
    @DataProvider
    public Object[][] ignoreOnMacOSX() {
-      return org.jclouds.utils.TestUtils.isMacOSX() ? TestUtils.NO_INVOCATIONS
-            : TestUtils.SINGLE_NO_ARG_INVOCATION;
+      return isMacOSX() ? NO_INVOCATIONS
+            : SINGLE_NO_ARG_INVOCATION;
    }
 
    @DataProvider
    public Object[][] ignoreOnWindows() {
-      return TestUtils.isWindowsOs() ? TestUtils.NO_INVOCATIONS
-            : TestUtils.SINGLE_NO_ARG_INVOCATION;
+      return TestUtils.isWindowsOs() ? NO_INVOCATIONS
+            : SINGLE_NO_ARG_INVOCATION;
+   }
+
+   @Override
+   @DataProvider
+   public Object[][] getBlobsToEscape() {
+      if (TestUtils.isWindowsOs()) {
+         Object[][] result = new Object[1][1];
+         result[0][0] = ImmutableSet.of("%20", " %20");
+         return result;
+      }
+      return super.getBlobsToEscape();
+   }
+
+   @Override
+   @Test(groups = { "integration", "live" })
+   public void testSetContainerAccess() throws Exception {
+      throw new SkipException("filesystem does not support anonymous access");
    }
 }

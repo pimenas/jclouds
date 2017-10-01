@@ -16,7 +16,10 @@
  */
 package org.jclouds.openstack.nova.v2_0.compute.config;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static org.jclouds.compute.config.ComputeServiceProperties.TIMEOUT_NODE_RUNNING;
+import static org.jclouds.compute.config.ComputeServiceProperties.TIMEOUT_NODE_TERMINATED;
 import static org.jclouds.openstack.nova.v2_0.config.NovaProperties.AUTO_ALLOCATE_FLOATING_IPS;
 import static org.jclouds.openstack.nova.v2_0.config.NovaProperties.AUTO_GENERATE_KEYPAIRS;
 import static org.jclouds.openstack.nova.v2_0.config.NovaProperties.TIMEOUT_SECURITYGROUP_PRESENT;
@@ -42,33 +45,31 @@ import org.jclouds.compute.domain.SecurityGroup;
 import org.jclouds.compute.extensions.ImageExtension;
 import org.jclouds.compute.extensions.SecurityGroupExtension;
 import org.jclouds.compute.options.TemplateOptions;
+import org.jclouds.compute.reference.ComputeServiceConstants;
 import org.jclouds.compute.strategy.impl.CreateNodesWithGroupEncodedIntoNameThenAddToSet;
 import org.jclouds.domain.Location;
 import org.jclouds.domain.LoginCredentials;
 import org.jclouds.functions.IdentityFunction;
-import org.jclouds.net.domain.IpPermission;
+import org.jclouds.openstack.nova.v2_0.NovaApi;
 import org.jclouds.openstack.nova.v2_0.compute.NovaComputeService;
 import org.jclouds.openstack.nova.v2_0.compute.NovaComputeServiceAdapter;
 import org.jclouds.openstack.nova.v2_0.compute.extensions.NovaImageExtension;
 import org.jclouds.openstack.nova.v2_0.compute.extensions.NovaSecurityGroupExtension;
+import org.jclouds.openstack.nova.v2_0.compute.functions.CleanupResources;
 import org.jclouds.openstack.nova.v2_0.compute.functions.CreateSecurityGroupIfNeeded;
 import org.jclouds.openstack.nova.v2_0.compute.functions.FlavorInRegionToHardware;
 import org.jclouds.openstack.nova.v2_0.compute.functions.ImageInRegionToImage;
 import org.jclouds.openstack.nova.v2_0.compute.functions.ImageToOperatingSystem;
 import org.jclouds.openstack.nova.v2_0.compute.functions.NovaSecurityGroupInRegionToSecurityGroup;
-import org.jclouds.openstack.nova.v2_0.compute.functions.NovaSecurityGroupToSecurityGroup;
 import org.jclouds.openstack.nova.v2_0.compute.functions.OrphanedGroupsByRegionId;
-import org.jclouds.openstack.nova.v2_0.compute.functions.SecurityGroupRuleToIpPermission;
 import org.jclouds.openstack.nova.v2_0.compute.functions.ServerInRegionToNodeMetadata;
-import org.jclouds.openstack.nova.v2_0.compute.loaders.CreateUniqueKeyPair;
 import org.jclouds.openstack.nova.v2_0.compute.loaders.FindSecurityGroupOrCreate;
 import org.jclouds.openstack.nova.v2_0.compute.loaders.LoadFloatingIpsForInstance;
 import org.jclouds.openstack.nova.v2_0.compute.options.NovaTemplateOptions;
 import org.jclouds.openstack.nova.v2_0.compute.strategy.ApplyNovaTemplateOptionsCreateNodesWithGroupEncodedIntoNameThenAddToSet;
 import org.jclouds.openstack.nova.v2_0.domain.FloatingIP;
-import org.jclouds.openstack.nova.v2_0.domain.KeyPair;
-import org.jclouds.openstack.nova.v2_0.domain.SecurityGroupRule;
 import org.jclouds.openstack.nova.v2_0.domain.Server;
+import org.jclouds.openstack.nova.v2_0.domain.Server.Status;
 import org.jclouds.openstack.nova.v2_0.domain.regionscoped.FlavorInRegion;
 import org.jclouds.openstack.nova.v2_0.domain.regionscoped.ImageInRegion;
 import org.jclouds.openstack.nova.v2_0.domain.regionscoped.RegionAndId;
@@ -80,7 +81,6 @@ import org.jclouds.openstack.nova.v2_0.predicates.FindSecurityGroupWithNameAndRe
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -114,12 +114,6 @@ public class NovaComputeServiceContextModule extends
       bind(new TypeLiteral<Function<ServerInRegion, NodeMetadata>>() {
       }).to(ServerInRegionToNodeMetadata.class);
 
-      bind(new TypeLiteral<Function<SecurityGroupRule, IpPermission>>() {
-      }).to(SecurityGroupRuleToIpPermission.class);
-
-      bind(new TypeLiteral<Function<org.jclouds.openstack.nova.v2_0.domain.SecurityGroup, SecurityGroup>>() {
-      }).to(NovaSecurityGroupToSecurityGroup.class);
-
       bind(new TypeLiteral<Function<SecurityGroupInRegion, SecurityGroup>>() {
       }).to(NovaSecurityGroupInRegionToSecurityGroup.class);
 
@@ -152,14 +146,14 @@ public class NovaComputeServiceContextModule extends
       bind(CreateNodesWithGroupEncodedIntoNameThenAddToSet.class).to(
                ApplyNovaTemplateOptionsCreateNodesWithGroupEncodedIntoNameThenAddToSet.class);
 
-      bind(new TypeLiteral<CacheLoader<RegionAndName, KeyPair>>() {
-      }).to(CreateUniqueKeyPair.class);
-
       bind(new TypeLiteral<ImageExtension>() {
       }).to(NovaImageExtension.class);
 
       bind(new TypeLiteral<SecurityGroupExtension>() {
       }).to(NovaSecurityGroupExtension.class);
+
+      bind(new TypeLiteral<Function<NodeMetadata, Boolean>>() {
+      }).to(CleanupResources.class);
    }
 
    @Override
@@ -172,16 +166,33 @@ public class NovaComputeServiceContextModule extends
    }
 
    @Provides
+   @com.google.inject.name.Named(TIMEOUT_NODE_RUNNING)
+   protected Predicate<RegionAndId> provideServerRunningPredicate(final NovaApi api,
+                                                             ComputeServiceConstants.Timeouts timeouts,
+                                                             ComputeServiceConstants.PollPeriod pollPeriod) {
+      return retry(new ServerInStatusPredicate(api, Status.ACTIVE), timeouts.nodeRunning,
+              pollPeriod.pollInitialPeriod, pollPeriod.pollMaxPeriod);
+   }
+
+   @Provides
+   @com.google.inject.name.Named(TIMEOUT_NODE_TERMINATED)
+   protected Predicate<RegionAndId> provideServerTerminatedPredicate(final NovaApi api, ComputeServiceConstants.Timeouts timeouts,
+                                                                ComputeServiceConstants.PollPeriod pollPeriod) {
+      return retry(new ServerTerminatedPredicate(api), timeouts.nodeTerminated, pollPeriod.pollInitialPeriod,
+              pollPeriod.pollMaxPeriod);
+   }
+
+   @Provides
    @Singleton
    @Named("FLOATINGIP")
-   protected LoadingCache<RegionAndId, Iterable<? extends FloatingIP>> instanceToFloatingIps(
+   protected final LoadingCache<RegionAndId, Iterable<? extends FloatingIP>> instanceToFloatingIps(
             @Named("FLOATINGIP") CacheLoader<RegionAndId, Iterable<? extends FloatingIP>> in) {
       return CacheBuilder.newBuilder().build(in);
    }
 
    @Provides
    @Singleton
-   protected LoadingCache<RegionAndName, SecurityGroupInRegion> securityGroupMap(
+   protected final LoadingCache<RegionAndName, SecurityGroupInRegion> securityGroupMap(
             CacheLoader<RegionAndName, SecurityGroupInRegion> in) {
       return CacheBuilder.newBuilder().build(in);
    }
@@ -195,22 +206,15 @@ public class NovaComputeServiceContextModule extends
    @Provides
    @Singleton
    @Named("SECURITYGROUP_PRESENT")
-   protected Predicate<AtomicReference<RegionAndName>> securityGroupEventualConsistencyDelay(
+   protected final Predicate<AtomicReference<RegionAndName>> securityGroupEventualConsistencyDelay(
             FindSecurityGroupWithNameAndReturnTrue in,
             @Named(TIMEOUT_SECURITYGROUP_PRESENT) long msDelay) {
-      return retry(in, msDelay, 100l, MILLISECONDS);
+      return retry(in, msDelay, 100L, MILLISECONDS);
    }
 
    @Provides
    @Singleton
-   protected LoadingCache<RegionAndName, KeyPair> keyPairMap(
-         CacheLoader<RegionAndName, KeyPair> in) {
-      return CacheBuilder.newBuilder().build(in);
-   }
-
-   @Provides
-   @Singleton
-   protected Supplier<Map<String, Location>> createLocationIndexedById(
+   protected final Supplier<Map<String, Location>> createLocationIndexedById(
             @Memoized Supplier<Set<? extends Location>> locations) {
       return Suppliers.compose(new Function<Set<? extends Location>, Map<String, Location>>() {
 
@@ -233,35 +237,35 @@ public class NovaComputeServiceContextModule extends
    }
 
    @VisibleForTesting
-   public static final Map<Server.Status, NodeMetadata.Status> toPortableNodeStatus = ImmutableMap
-            .<Server.Status, NodeMetadata.Status> builder()
-            .put(Server.Status.ACTIVE, NodeMetadata.Status.RUNNING)
-            .put(Server.Status.BUILD, NodeMetadata.Status.PENDING)
-            .put(Server.Status.DELETED, NodeMetadata.Status.TERMINATED)
-            .put(Server.Status.ERROR, NodeMetadata.Status.ERROR)
-            .put(Server.Status.HARD_REBOOT, NodeMetadata.Status.PENDING)
-            .put(Server.Status.MIGRATING, NodeMetadata.Status.PENDING)
-            .put(Server.Status.PASSWORD, NodeMetadata.Status.PENDING)
-            .put(Server.Status.PAUSED, NodeMetadata.Status.SUSPENDED)
-            .put(Server.Status.REBOOT, NodeMetadata.Status.PENDING)
-            .put(Server.Status.REBUILD, NodeMetadata.Status.PENDING)
-            .put(Server.Status.RESCUE, NodeMetadata.Status.PENDING)
-            .put(Server.Status.RESIZE, NodeMetadata.Status.PENDING)
-            .put(Server.Status.REVERT_RESIZE, NodeMetadata.Status.PENDING)
-            .put(Server.Status.SHELVED, NodeMetadata.Status.SUSPENDED)
-            .put(Server.Status.SHELVED_OFFLOADED, NodeMetadata.Status.SUSPENDED)
-            .put(Server.Status.SHUTOFF, NodeMetadata.Status.SUSPENDED)
-            .put(Server.Status.SOFT_DELETED, NodeMetadata.Status.TERMINATED)
-            .put(Server.Status.STOPPED, NodeMetadata.Status.SUSPENDED)
-            .put(Server.Status.SUSPENDED, NodeMetadata.Status.SUSPENDED)
-            .put(Server.Status.UNKNOWN, NodeMetadata.Status.UNRECOGNIZED)
-            .put(Server.Status.UNRECOGNIZED, NodeMetadata.Status.UNRECOGNIZED)
-            .put(Server.Status.VERIFY_RESIZE, NodeMetadata.Status.PENDING)
+   public static final Map<Status, NodeMetadata.Status> toPortableNodeStatus = ImmutableMap
+            .<Status, NodeMetadata.Status> builder()
+            .put(Status.ACTIVE, NodeMetadata.Status.RUNNING)
+            .put(Status.BUILD, NodeMetadata.Status.PENDING)
+            .put(Status.DELETED, NodeMetadata.Status.TERMINATED)
+            .put(Status.ERROR, NodeMetadata.Status.ERROR)
+            .put(Status.HARD_REBOOT, NodeMetadata.Status.PENDING)
+            .put(Status.MIGRATING, NodeMetadata.Status.PENDING)
+            .put(Status.PASSWORD, NodeMetadata.Status.PENDING)
+            .put(Status.PAUSED, NodeMetadata.Status.SUSPENDED)
+            .put(Status.REBOOT, NodeMetadata.Status.PENDING)
+            .put(Status.REBUILD, NodeMetadata.Status.PENDING)
+            .put(Status.RESCUE, NodeMetadata.Status.PENDING)
+            .put(Status.RESIZE, NodeMetadata.Status.PENDING)
+            .put(Status.REVERT_RESIZE, NodeMetadata.Status.PENDING)
+            .put(Status.SHELVED, NodeMetadata.Status.SUSPENDED)
+            .put(Status.SHELVED_OFFLOADED, NodeMetadata.Status.SUSPENDED)
+            .put(Status.SHUTOFF, NodeMetadata.Status.SUSPENDED)
+            .put(Status.SOFT_DELETED, NodeMetadata.Status.TERMINATED)
+            .put(Status.STOPPED, NodeMetadata.Status.SUSPENDED)
+            .put(Status.SUSPENDED, NodeMetadata.Status.SUSPENDED)
+            .put(Status.UNKNOWN, NodeMetadata.Status.UNRECOGNIZED)
+            .put(Status.UNRECOGNIZED, NodeMetadata.Status.UNRECOGNIZED)
+            .put(Status.VERIFY_RESIZE, NodeMetadata.Status.PENDING)
             .build();
 
    @Singleton
    @Provides
-   protected Map<Server.Status, NodeMetadata.Status> toPortableNodeStatus() {
+   protected final Map<Status, NodeMetadata.Status> toPortableNodeStatus() {
       return toPortableNodeStatus;
    }
 
@@ -275,19 +279,49 @@ public class NovaComputeServiceContextModule extends
             .put(org.jclouds.openstack.nova.v2_0.domain.Image.Status.UNKNOWN, Image.Status.UNRECOGNIZED)
             .put(org.jclouds.openstack.nova.v2_0.domain.Image.Status.UNRECOGNIZED, Image.Status.UNRECOGNIZED).build();
 
+
+   @VisibleForTesting
+   static class ServerInStatusPredicate implements Predicate<RegionAndId> {
+
+      private final NovaApi api;
+      private final Status status;
+
+      public ServerInStatusPredicate(NovaApi api, Status status) {
+         this.api = checkNotNull(api, "api must not be null");
+         this.status = checkNotNull(status, "status must not be null");
+      }
+
+      @Override
+      public boolean apply(RegionAndId regionAndId) {
+         checkNotNull(regionAndId, "regionAndId");
+         Server server = api.getServerApi(regionAndId.getRegion()).get(regionAndId.getId());
+         if (server == null) {
+            throw new IllegalStateException(String.format("Server %s not found.", regionAndId.getId()));
+         }
+         return status.equals(server.getStatus());      
+      }
+   }
+
+   @VisibleForTesting
+   static class ServerTerminatedPredicate implements Predicate<RegionAndId> {
+
+      private final NovaApi api;
+
+      public ServerTerminatedPredicate(NovaApi api) {
+         this.api = checkNotNull(api, "api must not be null");
+      }
+
+      @Override
+      public boolean apply(RegionAndId regionAndId) {
+         checkNotNull(regionAndId, "regionAndId");
+         Server server = api.getServerApi(regionAndId.getRegion()).get(regionAndId.getId());
+         return server == null;
+      }
+   }
+
    @Singleton
    @Provides
-   protected Map<org.jclouds.openstack.nova.v2_0.domain.Image.Status, Image.Status> toPortableImageStatus() {
+   protected final Map<org.jclouds.openstack.nova.v2_0.domain.Image.Status, Image.Status> toPortableImageStatus() {
       return toPortableImageStatus;
-   }
-
-   @Override
-   protected Optional<ImageExtension> provideImageExtension(Injector i) {
-      return Optional.of(i.getInstance(ImageExtension.class));
-   }
-
-   @Override
-   protected Optional<SecurityGroupExtension> provideSecurityGroupExtension(Injector i) {
-      return Optional.of(i.getInstance(SecurityGroupExtension.class));
    }
 }

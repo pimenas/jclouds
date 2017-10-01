@@ -89,7 +89,6 @@ import org.jclouds.rest.suppliers.MemoizedRetryOnTimeOutButNotOnAuthorizationExc
 
 import com.google.common.base.Function;
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
 import com.google.common.cache.CacheBuilder;
@@ -156,7 +155,6 @@ public class CloudStackComputeServiceContextModule extends
       install(new LocationsFromComputeServiceAdapterModule<VirtualMachine, ServiceOffering, Template, Zone>() {
       });
    }
-   
 
    @Override
    protected TemplateOptions provideTemplateOptions(Injector injector, TemplateOptions options) {
@@ -168,7 +166,7 @@ public class CloudStackComputeServiceContextModule extends
    @Provides
    @Singleton
    @Memoized
-   public Supplier<Map<String, String>> listOSCategories(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
+   public final Supplier<Map<String, String>> listOSCategories(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
          final CloudStackApi client) {
       return MemoizedRetryOnTimeOutButNotOnAuthorizationExceptionSupplier.create(authException,
             new Supplier<Map<String, String>>() {
@@ -187,7 +185,7 @@ public class CloudStackComputeServiceContextModule extends
    @Provides
    @Singleton
    @Memoized
-   public Supplier<Map<String, OSType>> listOSTypes(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
+   public final Supplier<Map<String, OSType>> listOSTypes(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
          final CloudStackApi client) {
       return MemoizedRetryOnTimeOutButNotOnAuthorizationExceptionSupplier.create(authException,
             new Supplier<Map<String, OSType>>() {
@@ -212,7 +210,7 @@ public class CloudStackComputeServiceContextModule extends
    @Provides
    @Singleton
    @Memoized
-   public Supplier<Map<String, Network>> listNetworks(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
+   public final Supplier<Map<String, Network>> listNetworks(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
          final NetworksForCurrentUser networksForCurrentUser) {
       return MemoizedRetryOnTimeOutButNotOnAuthorizationExceptionSupplier.create(authException, networksForCurrentUser,
                seconds, TimeUnit.SECONDS);
@@ -221,7 +219,7 @@ public class CloudStackComputeServiceContextModule extends
    @Provides
    @Singleton
    @Memoized
-   public Supplier<Map<String, Project>> listProjects(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
+   public final Supplier<Map<String, Project>> listProjects(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
                                                       final ProjectsForCurrentUser projectsForCurrentUser) {
       return MemoizedRetryOnTimeOutButNotOnAuthorizationExceptionSupplier.create(authException, projectsForCurrentUser,
               seconds, TimeUnit.SECONDS);
@@ -230,7 +228,7 @@ public class CloudStackComputeServiceContextModule extends
    @Provides
    @Singleton
    @Memoized
-   public Supplier<User> getCurrentUser(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
+   public final Supplier<User> getCurrentUser(AtomicReference<AuthorizationException> authException, @Named(PROPERTY_SESSION_INTERVAL) long seconds,
          final GetCurrentUser getCurrentUser) {
       return MemoizedRetryOnTimeOutButNotOnAuthorizationExceptionSupplier.create(authException, getCurrentUser,
                seconds, TimeUnit.SECONDS);
@@ -238,27 +236,27 @@ public class CloudStackComputeServiceContextModule extends
 
    @Provides
    @Singleton
-   protected Predicate<String> jobComplete(JobComplete jobComplete) {
+   protected final Predicate<String> jobComplete(JobComplete jobComplete) {
       return retry(jobComplete, 1200, 1, 5, SECONDS);
    }
 
    @Provides
    @Singleton
-   protected LoadingCache<String, SshKeyPair> keyPairMap(
+   protected final LoadingCache<String, SshKeyPair> keyPairMap(
          CacheLoader<String, SshKeyPair> in) {
       return CacheBuilder.newBuilder().build(in);
    }
 
    @Provides
    @Singleton
-   protected LoadingCache<ZoneAndName, SecurityGroup> securityGroupMap(
+   protected final LoadingCache<ZoneAndName, SecurityGroup> securityGroupMap(
             CacheLoader<ZoneAndName, SecurityGroup> in) {
       return CacheBuilder.newBuilder().build(in);
    }
 
    @Provides
    @Singleton
-   protected LoadingCache<String, Set<IPForwardingRule>> getIPForwardingRulesByVirtualMachine(
+   protected final LoadingCache<String, Set<IPForwardingRule>> getIPForwardingRulesByVirtualMachine(
       CacheLoader<String, Set<IPForwardingRule>> in) {
       return CacheBuilder.newBuilder().build(in);
    }
@@ -266,26 +264,16 @@ public class CloudStackComputeServiceContextModule extends
 
    @Provides
    @Singleton
-   protected LoadingCache<String, Set<FirewallRule>> getFirewallRulesByVirtualMachine(
+   protected final LoadingCache<String, Set<FirewallRule>> getFirewallRulesByVirtualMachine(
       CacheLoader<String, Set<FirewallRule>> getFirewallRules) {
       return CacheBuilder.newBuilder().build(getFirewallRules);
    }
 
    @Provides
    @Singleton
-   public Map<NetworkType, ? extends OptionsConverter> optionsConverters() {
+   public final Map<NetworkType, ? extends OptionsConverter> optionsConverters() {
       return ImmutableMap.of(
          NetworkType.ADVANCED, new AdvancedNetworkOptionsConverter(),
          NetworkType.BASIC, new BasicNetworkOptionsConverter());
-   }
-
-   @Override
-   protected Optional<ImageExtension> provideImageExtension(Injector i) {
-      return Optional.of(i.getInstance(ImageExtension.class));
-   }
-
-   @Override
-   protected Optional<SecurityGroupExtension> provideSecurityGroupExtension(Injector i) {
-      return Optional.of(i.getInstance(SecurityGroupExtension.class));
    }
 }

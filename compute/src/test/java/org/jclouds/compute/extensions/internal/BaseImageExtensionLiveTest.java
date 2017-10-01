@@ -20,8 +20,10 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.jclouds.compute.predicates.NodePredicates.inGroup;
 import static org.jclouds.util.Predicates2.retry;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
+import java.util.NoSuchElementException;
 import java.util.concurrent.ExecutionException;
 
 import javax.annotation.Resource;
@@ -33,6 +35,7 @@ import org.jclouds.compute.domain.Image;
 import org.jclouds.compute.domain.ImageTemplate;
 import org.jclouds.compute.domain.NodeMetadata;
 import org.jclouds.compute.domain.Template;
+import org.jclouds.compute.domain.TemplateBuilder;
 import org.jclouds.compute.extensions.ImageExtension;
 import org.jclouds.compute.internal.BaseComputeServiceContextLiveTest;
 import org.jclouds.compute.reference.ComputeServiceConstants;
@@ -64,8 +67,12 @@ public abstract class BaseImageExtensionLiveTest extends BaseComputeServiceConte
     * 
     * @return
     */
-   public Template getNodeTemplate() {
-      return view.getComputeService().templateBuilder().build();
+   public TemplateBuilder getNodeTemplate() {
+      TemplateBuilder templateBuilder = view.getComputeService().templateBuilder();
+      if (templateBuilderSpec != null) {
+          templateBuilder = templateBuilder.from(templateBuilderSpec);
+      }
+      return templateBuilder;
    }
 
    /**
@@ -90,84 +97,83 @@ public abstract class BaseImageExtensionLiveTest extends BaseComputeServiceConte
 
    @Test(groups = { "integration", "live" }, singleThreaded = true)
    public void testCreateImage() throws RunNodesException, InterruptedException, ExecutionException {
-
       ComputeService computeService = view.getComputeService();
-
       Optional<ImageExtension> imageExtension = computeService.getImageExtension();
-
       assertTrue(imageExtension.isPresent(), "image extension was not present");
 
-      Template template = getNodeTemplate();
-
+      Template template = getNodeTemplate().build();
       NodeMetadata node = Iterables.getOnlyElement(computeService.createNodesInGroup(imageGroup, 1, template));
-
       checkReachable(node);
+      
+      prepareNodeBeforeCreatingImage(node);
 
       logger.info("Creating image from node %s, started with template: %s", node, template);
-
       ImageTemplate newImageTemplate = imageExtension.get().buildImageTemplateFromNode(imageGroup,
               node.getId());
-
       Image image = imageExtension.get().createImage(newImageTemplate).get();
-
       logger.info("Image created: %s", image);
 
       assertEquals(imageGroup, image.getName());
 
       imageId = image.getId();
-
       computeService.destroyNode(node.getId());
 
       Optional<? extends Image> optImage = getImage();
-
       assertTrue(optImage.isPresent());
+   }
+   
+   /**
+    * Subclasses can override this to prepare the node before creating an image (run cleanup scripts, etc)
+    */
+   protected void prepareNodeBeforeCreatingImage(NodeMetadata node) {
+      
+   }
+
+   @Test(groups = { "integration", "live" }, singleThreaded = true, dependsOnMethods = "testCreateImage")
+   public void testImageIsCachedAfterBeingCreated() {
+      Optional<Image> imageInCache = findImageWithNameInCache(imageGroup);
+      assertTrue(imageInCache.isPresent());
+      assertEquals(imageInCache.get().getId(), imageId);
    }
 
    @Test(groups = { "integration", "live" }, singleThreaded = true, dependsOnMethods = "testCreateImage")
    public void testSpawnNodeFromImage() throws RunNodesException {
-
       ComputeService computeService = view.getComputeService();
-
       Optional<? extends Image> optImage = getImage();
-
       assertTrue(optImage.isPresent());
 
-      NodeMetadata node = Iterables.getOnlyElement(computeService.createNodesInGroup(imageGroup, 1, view
-               .getComputeService()
+      NodeMetadata node = Iterables.getOnlyElement(computeService.createNodesInGroup(imageGroup, 1, getNodeTemplate()
                // fromImage does not use the arg image's id (but we do need to set location)
-               .templateBuilder().imageId(optImage.get().getId()).fromImage(optImage.get()).build()));
+               .imageId(optImage.get().getId()).fromImage(optImage.get()).build()));
 
       checkReachable(node);
-
       view.getComputeService().destroyNode(node.getId());
-
    }
 
    @Test(groups = { "integration", "live" }, singleThreaded = true, dependsOnMethods = { "testCreateImage",
-            "testSpawnNodeFromImage" })
+            "testSpawnNodeFromImage", "testImageIsCachedAfterBeingCreated" })
    public void testDeleteImage() {
-
       ComputeService computeService = view.getComputeService();
 
       Optional<ImageExtension> imageExtension = computeService.getImageExtension();
       assertTrue(imageExtension.isPresent(), "image extension was not present");
 
       Optional<? extends Image> optImage = getImage();
-
       assertTrue(optImage.isPresent());
 
       Image image = optImage.get();
-
       assertTrue(imageExtension.get().deleteImage(image.getId()));
+   }
+   
+   @Test(groups = { "integration", "live" }, singleThreaded = true, dependsOnMethods = "testDeleteImage")
+   public void testImageIsRemovedFromCacheAfterDeletion() {
+      Optional<Image> imageInCache = findImageWithNameInCache(imageGroup);
+      assertFalse(imageInCache.isPresent());
+      assertFalse(getImage().isPresent());
    }
 
    private Optional<? extends Image> getImage() {
-      return Iterables.tryFind(listImages(), new Predicate<Image>() {
-         @Override
-         public boolean apply(Image input) {
-            return input.getId().equals(imageId);
-         }
-      });
+      return Optional.fromNullable(view.getComputeService().getImage(imageId));
    }
 
    private void checkReachable(NodeMetadata node) {
@@ -181,7 +187,16 @@ public abstract class BaseImageExtensionLiveTest extends BaseComputeServiceConte
             }
             return false;
          }
-      }, getSpawnNodeMaxWait(), 1l, SECONDS).apply(client));
+      }, getSpawnNodeMaxWait(), 1L, SECONDS).apply(client));
+   }
+
+   protected Optional<Image> findImageWithNameInCache(String name) {
+      try {
+         Template template = view.getComputeService().templateBuilder().imageNameMatches(name).build();
+         return Optional.of(template.getImage());
+      } catch (NoSuchElementException ex) {
+         return Optional.absent();
+      }
    }
 
    @AfterClass(groups = { "integration", "live" })

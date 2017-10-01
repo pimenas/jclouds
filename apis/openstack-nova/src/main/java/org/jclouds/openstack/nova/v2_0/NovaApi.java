@@ -16,11 +16,11 @@
  */
 package org.jclouds.openstack.nova.v2_0;
 
-import java.io.Closeable;
-import java.util.Set;
-
+import com.google.common.base.Optional;
+import com.google.inject.Provides;
 import org.jclouds.location.Region;
 import org.jclouds.location.functions.RegionToEndpoint;
+import org.jclouds.openstack.nova.v2_0.extensions.AttachInterfaceApi;
 import org.jclouds.openstack.nova.v2_0.extensions.AvailabilityZoneApi;
 import org.jclouds.openstack.nova.v2_0.extensions.ConsolesApi;
 import org.jclouds.openstack.nova.v2_0.extensions.FlavorExtraSpecsApi;
@@ -28,6 +28,7 @@ import org.jclouds.openstack.nova.v2_0.extensions.FloatingIPApi;
 import org.jclouds.openstack.nova.v2_0.extensions.FloatingIPPoolApi;
 import org.jclouds.openstack.nova.v2_0.extensions.HostAdministrationApi;
 import org.jclouds.openstack.nova.v2_0.extensions.HostAggregateApi;
+import org.jclouds.openstack.nova.v2_0.extensions.HypervisorApi;
 import org.jclouds.openstack.nova.v2_0.extensions.KeyPairApi;
 import org.jclouds.openstack.nova.v2_0.extensions.QuotaApi;
 import org.jclouds.openstack.nova.v2_0.extensions.SecurityGroupApi;
@@ -45,8 +46,8 @@ import org.jclouds.openstack.v2_0.features.ExtensionApi;
 import org.jclouds.rest.annotations.Delegate;
 import org.jclouds.rest.annotations.EndpointParam;
 
-import com.google.common.base.Optional;
-import com.google.inject.Provides;
+import java.io.Closeable;
+import java.util.Set;
 
 /**
  * Provides access to the OpenStack Compute (Nova) v2 API.
@@ -219,6 +220,17 @@ public interface NovaApi extends Closeable {
          @EndpointParam(parser = RegionToEndpoint.class) String region);
 
    /**
+    * Provides access to Hypervisor features.
+    *
+    * <h3>NOTE</h3>
+    * This API is an extension that may or may not be present in your OpenStack cloud. Use the Optional return type
+    * to determine if it is present.
+    */
+   @Delegate
+   Optional<HypervisorApi> getHypervisorApi(
+         @EndpointParam(parser = RegionToEndpoint.class) String region);
+
+   /**
     * Provides access to Volume features.
     *
     * <h3>NOTE</h3>
@@ -274,8 +286,15 @@ public interface NovaApi extends Closeable {
          @EndpointParam(parser = RegionToEndpoint.class) String region);
 
    /**
+    * Provides access to attach interface features.
+    */
+   @Delegate
+   Optional<AttachInterfaceApi> getAttachInterfaceApi(
+         @EndpointParam(parser = RegionToEndpoint.class) String region);
+
+   /**
     * @return the Zone codes configured
-    * @deprecated Please use {@link #getConfiguredRegions()} as this method will be removed in jclouds 3.0.
+    * @deprecated Please use {@link #getConfiguredRegions()} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Provides
@@ -284,7 +303,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Server features.
-    * @deprecated Please use {@link #getServerApi(String)} as this method will be removed in jclouds 3.0.
+    * @deprecated Please use {@link #getServerApi(String)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -293,7 +312,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Flavor features.
-    * @deprecated Please use {@link #getFlavorApi(String)} as this method will be removed in jclouds 3.0.
+    * @deprecated Please use {@link #getFlavorApi(String)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -302,8 +321,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Extension features.
-    * @deprecated Please use {@link #getExtensionApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getExtensionApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -312,8 +330,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Image features.
-    * @deprecated Please use {@link #getImageApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getImageApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -322,8 +339,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Floating IP features.
-    * @deprecated Please use {@link #getFloatingIPApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getFloatingIPApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -332,8 +348,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Security Group features.
-    * @deprecated Please use {@link #getSecurityGroupApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getSecurityGroupApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -342,8 +357,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Key Pair features.
-    * @deprecated Please use {@link #getKeyPairApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getKeyPairApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -352,8 +366,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Host Administration features.
-    * @deprecated Please use {@link #getHostAdministrationApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getHostAdministrationApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -362,8 +375,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Simple Tenant Usage features.
-    * @deprecated Please use {@link #getSimpleTenantUsageApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getSimpleTenantUsageApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -372,8 +384,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Virtual Interface features.
-    * @deprecated Please use {@link #getVirtualInterfaceApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getVirtualInterfaceApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -382,8 +393,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Server Extra Data features.
-    * @deprecated Please use {@link #getServerWithSecurityGroupsApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getServerWithSecurityGroupsApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -392,8 +402,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Server Admin Actions features.
-    * @deprecated Please use {@link #getServerAdminApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getServerAdminApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -402,8 +411,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Aggregate features.
-    * @deprecated Please use {@link #getHostAggregateApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getHostAggregateApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -412,8 +420,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Flavor extra specs features.
-    * @deprecated Please use {@link #getFlavorExtraSpecsApi(String)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getFlavorExtraSpecsApi(String)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -422,8 +429,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Quota features.
-    * @deprecated Please use {@link #getQuotaApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getQuotaApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -432,8 +438,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Volume features.
-    * @deprecated Please use {@link #getVolumeApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getVolumeApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -442,8 +447,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Volume Attachment features.
-    * @deprecated Please use {@link #getVolumeAttachmentApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getVolumeAttachmentApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -452,8 +456,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Volume Type features.
-    * @deprecated Please use {@link #getVolumeTypeApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getVolumeTypeApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate
@@ -462,8 +465,7 @@ public interface NovaApi extends Closeable {
 
    /**
     * Provides access to Console features.
-    * @deprecated Please use {@link #getConsolesApi(String region)} as this method will be removed
-    *             in jclouds 3.0.
+    * @deprecated Please use {@link #getConsolesApi(String region)} instead. To be removed in jclouds 2.0.
     */
    @Deprecated
    @Delegate

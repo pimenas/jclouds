@@ -17,6 +17,8 @@
 package org.jclouds.azureblob;
 
 import static com.google.common.io.BaseEncoding.base16;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Fail.failBecauseExceptionWasNotThrown;
 import static org.jclouds.azure.storage.options.ListOptions.Builder.includeMetadata;
 import static org.jclouds.azureblob.options.CreateContainerOptions.Builder.withMetadata;
 import static org.jclouds.azureblob.options.CreateContainerOptions.Builder.withPublicAccess;
@@ -28,25 +30,35 @@ import java.lang.reflect.UndeclaredThrowableException;
 import java.net.URI;
 import java.security.SecureRandom;
 import java.util.Arrays;
+import java.util.Date;
+import java.util.EnumSet;
+import java.util.Map;
 import java.util.Set;
 
 import org.jclouds.azure.storage.AzureStorageResponseException;
 import org.jclouds.azure.storage.domain.BoundedSet;
 import org.jclouds.azure.storage.options.ListOptions;
+import org.jclouds.azureblob.domain.AccessTier;
 import org.jclouds.azureblob.domain.AzureBlob;
 import org.jclouds.azureblob.domain.BlobProperties;
 import org.jclouds.azureblob.domain.ContainerProperties;
 import org.jclouds.azureblob.domain.ListBlobBlocksResponse;
+import org.jclouds.azureblob.domain.ListBlobsInclude;
 import org.jclouds.azureblob.domain.ListBlobsResponse;
 import org.jclouds.azureblob.domain.PublicAccess;
+import org.jclouds.azureblob.options.CopyBlobOptions;
 import org.jclouds.azureblob.options.ListBlobsOptions;
 import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.integration.internal.BaseBlobStoreIntegrationTest;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.http.options.GetOptions;
+import org.jclouds.io.ByteStreams2;
+import org.jclouds.io.ContentMetadata;
+import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.Payloads;
 import org.jclouds.util.Strings2;
 import org.jclouds.util.Throwables2;
+import org.jclouds.utils.TestUtils;
 import org.testng.annotations.Test;
 
 import com.google.common.base.Charsets;
@@ -55,6 +67,7 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Iterables;
 import com.google.common.hash.Hashing;
 import com.google.common.io.BaseEncoding;
+import com.google.common.io.ByteSource;
 
 @Test(groups = "live", singleThreaded = true)
 public class AzureBlobClientLiveTest extends BaseBlobStoreIntegrationTest {
@@ -82,7 +95,8 @@ public class AzureBlobClientLiveTest extends BaseBlobStoreIntegrationTest {
    public void testCreateContainer() throws Exception {
       boolean created = false;
       while (!created) {
-         privateContainer = CONTAINER_PREFIX + new SecureRandom().nextInt();
+         // testListOwnedContainers requires a unique prefix
+         privateContainer = CONTAINER_PREFIX + "unique-" + containerIndex.incrementAndGet();
          try {
             created = getApi().createContainer(privateContainer, withMetadata(ImmutableMultimap.of("foo", "bar")));
          } catch (UndeclaredThrowableException e) {
@@ -106,7 +120,7 @@ public class AzureBlobClientLiveTest extends BaseBlobStoreIntegrationTest {
    public void testCreatePublicContainer() throws Exception {
       boolean created = false;
       while (!created) {
-         publicContainer = CONTAINER_PREFIX + new SecureRandom().nextInt();
+         publicContainer = CONTAINER_PREFIX + containerIndex.incrementAndGet();
          try {
             created = getApi().createContainer(publicContainer, withPublicAccess(PublicAccess.BLOB));
          } catch (UndeclaredThrowableException e) {
@@ -116,11 +130,18 @@ public class AzureBlobClientLiveTest extends BaseBlobStoreIntegrationTest {
             throw e;
          }
       }
-      // TODO
-      // URL url = new URL(String.format("http://%s.blob.core.windows.net/%s",
-      // identity,
-      // publicContainer));
-      // Utils.toStringAndClose(url.openStream());
+
+      ContainerProperties properties = null;
+      for (ContainerProperties p : getApi().listContainers(includeMetadata())) {
+         if (p.getName().equals(publicContainer)) {
+            properties = p;
+            break;
+         }
+      }
+      assertThat(properties.getPublicAccess()).isEqualTo(PublicAccess.BLOB);
+
+      properties = getApi().getContainerProperties(publicContainer);
+      assertThat(properties.getPublicAccess()).isEqualTo(PublicAccess.BLOB);
    }
 
    @Test(timeOut = 10 * 60 * 1000)
@@ -230,32 +251,26 @@ public class AzureBlobClientLiveTest extends BaseBlobStoreIntegrationTest {
 
       // Test HEAD of object
       BlobProperties metadata = getApi().getBlobProperties(privateContainer, object.getProperties().getName());
-      // TODO assertEquals(metadata.getName(),
-      // object.getProperties().getName());
-      // we can't check this while hacking around lack of content-md5, as GET of
-      // the first byte will
-      // show incorrect length 1, the returned size, as opposed to the real
-      // length. This is an ok
-      // tradeoff, as a container list will contain the correct size of the
-      // objects in an
-      // inexpensive fashion
-      // http://code.google.com/p/jclouds/issues/detail?id=92
-      // assertEquals(metadata.getSize(), data.length());
+      assertEquals(metadata.getName(), object.getProperties().getName());
+      assertEquals(metadata.getContentMetadata().getContentLength(), Long.valueOf(data.length()));
       assertEquals(metadata.getContentMetadata().getContentType(), "text/plain");
-      // Azure doesn't return the Content-MD5 on head request..
-      assertEquals(base16().lowerCase().encode(md5),
+      assertEquals(base16().lowerCase().encode(metadata.getContentMetadata().getContentMD5()),
             base16().lowerCase().encode(object.getProperties().getContentMetadata().getContentMD5()));
       assertEquals(metadata.getETag(), newEtag);
       assertEquals(metadata.getMetadata().entrySet().size(), 1);
       assertEquals(metadata.getMetadata().get("mykey"), "metadata-value");
 
-      // // Test POST to update object's metadata
-      // Multimap<String, String> userMetadata = LinkedHashMultimap.create();
-      // userMetadata.put("New-Metadata-1", "value-1");
-      // userMetadata.put("New-Metadata-2", "value-2");
-      // assertTrue(getApi().setBlobProperties(privateContainer,
-      // object.getProperties().getName(),
-      // userMetadata));
+      // Test POST to update object's metadata
+      Map<String, String> userMetadata = ImmutableMap.<String, String>builder()
+            .put("new_metadata_1", "value-1")
+            .put("new_metadata_2", "value-2")
+            .build();
+      String eTag = getApi().setBlobMetadata(privateContainer, object.getProperties().getName(), userMetadata);
+      assertThat(eTag).isNotNull();
+
+      // Azure ETag are timestamps not content hash
+      String eTag2 = getApi().setBlobMetadata(privateContainer, object.getProperties().getName(), userMetadata);
+      assertThat(eTag2).isNotNull().isNotEqualTo(eTag);
 
       // Test GET of missing object
       assert getApi().getBlob(privateContainer, "non-existent-object") == null;
@@ -263,21 +278,14 @@ public class AzureBlobClientLiveTest extends BaseBlobStoreIntegrationTest {
       // Test GET of object (including updated metadata)
       AzureBlob getBlob = getApi().getBlob(privateContainer, object.getProperties().getName());
       assertEquals(Strings2.toStringAndClose(getBlob.getPayload().openStream()), data);
-      // TODO assertEquals(getBlob.getName(), object.getProperties().getName());
+      assertEquals(getBlob.getProperties().getName(), object.getProperties().getName());
       assertEquals(getBlob.getPayload().getContentMetadata().getContentLength(), Long.valueOf(data.length()));
       assertEquals(getBlob.getProperties().getContentMetadata().getContentType(), "text/plain");
       assertEquals(base16().lowerCase().encode(md5),
             base16().lowerCase().encode(getBlob.getProperties().getContentMetadata().getContentMD5()));
-      assertEquals(newEtag, getBlob.getProperties().getETag());
-      // wait until we can update metadata
-      // assertEquals(getBlob.getProperties().getMetadata().entries().size(),
-      // 2);
-      // assertEquals(
-      // Iterables.getLast(getBlob.getProperties().getMetadata().get("New-Metadata-1")),
-      // "value-1");
-      // assertEquals(
-      // Iterables.getLast(getBlob.getProperties().getMetadata().get("New-Metadata-2")),
-      // "value-2");
+      assertEquals(getBlob.getProperties().getMetadata().size(), 2);
+      assertEquals(getBlob.getProperties().getMetadata().get("new_metadata_1"), "value-1");
+      assertEquals(getBlob.getProperties().getMetadata().get("new_metadata_2"), "value-2");
       assertEquals(metadata.getMetadata().entrySet().size(), 1);
       assertEquals(metadata.getMetadata().get("mykey"), "metadata-value");
 
@@ -289,7 +297,9 @@ public class AzureBlobClientLiveTest extends BaseBlobStoreIntegrationTest {
                   .maxResults(1).includeMetadata());
       assertEquals(response.size(), 1);
       assertEquals(Iterables.getOnlyElement(response).getName(), object.getProperties().getName());
-      assertEquals(Iterables.getOnlyElement(response).getMetadata(), ImmutableMap.of("mykey", "metadata-value"));
+      assertEquals(Iterables.getOnlyElement(response).getMetadata().size(), 2);
+      assertEquals(Iterables.getOnlyElement(response).getMetadata().get("new_metadata_1"), "value-1");
+      assertEquals(Iterables.getOnlyElement(response).getMetadata().get("new_metadata_2"), "value-2");
 
       // Test PUT with invalid ETag (as if object's data was corrupted in
       // transit)
@@ -332,15 +342,8 @@ public class AzureBlobClientLiveTest extends BaseBlobStoreIntegrationTest {
          assertEquals(e.getResponse().getStatusCode(), 412);
       }
 
-      // Range
-      // doesn't work per
-      // http://social.msdn.microsoft.com/Forums/en-US/windowsazure/thread/479fa63f-51df-4b66-96b5-33ae362747b6
-      // getBlob = getApi()
-      // .getBlob(privateContainer, object.getProperties().getName(),
-      // GetOptions.Builder.startAt(8)).get(120,
-      // TimeUnit.SECONDS);
-      // assertEquals(Utils.toStringAndClose((InputStream) getBlob.getData()),
-      // data.substring(8));
+      getBlob = getApi().getBlob(privateContainer, object.getProperties().getName(), GetOptions.Builder.startAt(8));
+      assertEquals(Strings2.toStringAndClose(getBlob.getPayload().openStream()), data.substring(8));
 
       getApi().deleteBlob(privateContainer, "object");
       getApi().deleteBlob(privateContainer, "chunked-object");
@@ -348,7 +351,7 @@ public class AzureBlobClientLiveTest extends BaseBlobStoreIntegrationTest {
 
    @Test(timeOut = 5 * 60 * 1000)
    public void testBlockOperations() throws Exception {
-      String blockContainer = CONTAINER_PREFIX + new SecureRandom().nextInt();
+      String blockContainer = CONTAINER_PREFIX + containerIndex.incrementAndGet();
       String blockBlob = "myblockblob-" + new SecureRandom().nextInt();
       String A = "A";
       String B = "B";
@@ -357,11 +360,20 @@ public class AzureBlobClientLiveTest extends BaseBlobStoreIntegrationTest {
       String blockIdA = BaseEncoding.base64().encode((blockBlob + "-" + A).getBytes());
       String blockIdB = BaseEncoding.base64().encode((blockBlob + "-" + B).getBytes());
       String blockIdC = BaseEncoding.base64().encode((blockBlob + "-" + C).getBytes());
+
       getApi().createContainer(blockContainer);
-      getApi().putBlock(blockContainer, blockBlob, blockIdA, Payloads.newPayload(A.getBytes()));
-      getApi().putBlock(blockContainer, blockBlob, blockIdB, Payloads.newPayload(B.getBytes()));
-      getApi().putBlock(blockContainer, blockBlob, blockIdC, Payloads.newPayload(C.getBytes()));
+
+      getApi().putBlock(blockContainer, blockBlob, blockIdA, Payloads.newByteArrayPayload(A.getBytes()));
+      getApi().putBlock(blockContainer, blockBlob, blockIdB, Payloads.newByteArrayPayload(B.getBytes()));
+      getApi().putBlock(blockContainer, blockBlob, blockIdC, Payloads.newByteArrayPayload(C.getBytes()));
+
+      ListBlobsResponse blobs = getApi().listBlobs(blockContainer);
+      assertThat(blobs).isEmpty();
+      blobs = getApi().listBlobs(blockContainer, new ListBlobsOptions().include(EnumSet.allOf(ListBlobsInclude.class)));
+      assertThat(blobs).hasSize(1);
+
       getApi().putBlockList(blockContainer, blockBlob, Arrays.asList(blockIdA, blockIdB, blockIdC));
+
       ListBlobBlocksResponse blocks = getApi().getBlockList(blockContainer, blockBlob);
       assertEquals(3, blocks.getBlocks().size());
       assertEquals(blockIdA, blocks.getBlocks().get(0).getBlockName());
@@ -370,6 +382,245 @@ public class AzureBlobClientLiveTest extends BaseBlobStoreIntegrationTest {
       assertEquals(1, blocks.getBlocks().get(0).getContentLength());
       assertEquals(1, blocks.getBlocks().get(1).getContentLength());
       assertEquals(1, blocks.getBlocks().get(2).getContentLength());
+
       getApi().deleteContainer(blockContainer);
+   }
+
+   @Test
+   public void testGetSetACL() throws Exception {
+      AzureBlobClient client = getApi();
+      String blockContainer = CONTAINER_PREFIX + containerIndex.incrementAndGet();
+      client.createContainer(blockContainer);
+      try {
+         assertThat(client.getPublicAccessForContainer(blockContainer)).isEqualTo(PublicAccess.PRIVATE);
+
+         setAndVerifyACL(client, blockContainer, PublicAccess.CONTAINER);
+         setAndVerifyACL(client, blockContainer, PublicAccess.BLOB);
+         setAndVerifyACL(client, blockContainer, PublicAccess.PRIVATE);
+      } finally {
+         client.deleteContainer(blockContainer);
+      }
+   }
+
+   private static void setAndVerifyACL(AzureBlobClient client, String blockContainer, PublicAccess access)
+         throws Exception {
+      client.setPublicAccessForContainer(blockContainer, access);
+      assertThat(client.getPublicAccessForContainer(blockContainer)).isEqualTo(access);
+   }
+
+   @Test(timeOut = 5 * 60 * 1000, dependsOnMethods = { "testCreateContainer" })
+   public void testCopyBlob() throws Exception {
+      ByteSource byteSource = TestUtils.randomByteSource().slice(0, 1024);
+
+      // create blob
+      AzureBlob object = getApi().newBlob();
+      object.getProperties().setName("from");
+      object.setPayload(byteSource.read());
+      getApi().putBlob(privateContainer, object);
+
+      // copy blob
+      URI copySource = view.getSigner().signGetBlob(privateContainer, "from").getEndpoint();
+      getApi().copyBlob(copySource, privateContainer, "to", CopyBlobOptions.NONE);
+
+      // ensure copied blob matches original
+      AzureBlob getBlob = getApi().getBlob(privateContainer, "to");
+      assertEquals(ByteStreams2.toByteArrayAndClose(getBlob.getPayload().openStream()), byteSource.read());
+      assertThat(getBlob.getProperties().getMetadata().isEmpty());
+   }
+
+   @Test(timeOut = 5 * 60 * 1000, dependsOnMethods = { "testCreateContainer" })
+   public void testCopyBlobReplaceMetadata() throws Exception {
+      ByteSource byteSource = TestUtils.randomByteSource().slice(0, 1024);
+
+      // create blob
+      AzureBlob object = getApi().newBlob();
+      object.getProperties().setName("from");
+      object.setPayload(byteSource.read());
+      getApi().putBlob(privateContainer, object);
+
+      // copy blob
+      URI copySource = view.getSigner().signGetBlob(privateContainer, "from").getEndpoint();
+      Map<String, String> newMetadata = ImmutableMap.of("foo", "bar");
+      getApi().copyBlob(copySource, privateContainer, "to", CopyBlobOptions.builder().overrideUserMetadata(newMetadata).build());
+
+      // ensure copied blob matches original
+      AzureBlob getBlob = getApi().getBlob(privateContainer, "to");
+      assertEquals(ByteStreams2.toByteArrayAndClose(getBlob.getPayload().openStream()), byteSource.read());
+      assertThat(getBlob.getProperties().getMetadata()).isEqualTo(newMetadata);
+   }
+
+   @Test(timeOut = 5 * 60 * 1000, dependsOnMethods = { "testCreateContainer" })
+   public void testCopyBlobIfModifiedSince() throws Exception {
+      ByteSource byteSource = TestUtils.randomByteSource().slice(0, 1024);
+
+      // create blob
+      AzureBlob object = getApi().newBlob();
+      object.getProperties().setName("from");
+      object.setPayload(byteSource.read());
+      String eTag = getApi().putBlob(privateContainer, object);
+
+      long now = System.currentTimeMillis();
+      Date before = new Date(now - 1000 * 1000);
+      Date after = new Date(now + 1000 * 1000);
+      URI copySource = view.getSigner().signGetBlob(privateContainer, "from").getEndpoint();
+
+      // failure case
+      try {
+         getApi().copyBlob(copySource, privateContainer, "to-if-modified-since", CopyBlobOptions.builder().ifModifiedSince(after).build());
+         failBecauseExceptionWasNotThrown(AzureStorageResponseException.class);
+      } catch (AzureStorageResponseException asre) {
+         assertThat(asre.getResponse().getStatusCode()).as("status code").isEqualTo(412);
+      }
+
+      // success case
+      getApi().copyBlob(copySource, privateContainer, "to-if-modified-since", CopyBlobOptions.builder().ifModifiedSince(before).build());
+      AzureBlob getBlob = getApi().getBlob(privateContainer, "to-if-modified-since");
+      assertEquals(ByteStreams2.toByteArrayAndClose(getBlob.getPayload().openStream()), byteSource.read());
+   }
+
+   @Test(timeOut = 5 * 60 * 1000, dependsOnMethods = { "testCreateContainer" })
+   public void testCopyBlobIfUnmodifiedSince() throws Exception {
+      ByteSource byteSource = TestUtils.randomByteSource().slice(0, 1024);
+
+      // create blob
+      AzureBlob object = getApi().newBlob();
+      object.getProperties().setName("from");
+      object.setPayload(byteSource.read());
+      String eTag = getApi().putBlob(privateContainer, object);
+
+      long now = System.currentTimeMillis();
+      Date before = new Date(now - 1000 * 1000);
+      Date after = new Date(now + 1000 * 1000);
+      URI copySource = view.getSigner().signGetBlob(privateContainer, "from").getEndpoint();
+
+      // failure case
+      try {
+         getApi().copyBlob(copySource, privateContainer, "to-if-unmodifed-since", CopyBlobOptions.builder().ifUnmodifiedSince(before).build());
+         failBecauseExceptionWasNotThrown(AzureStorageResponseException.class);
+      } catch (AzureStorageResponseException asre) {
+         assertThat(asre.getResponse().getStatusCode()).as("status code").isEqualTo(412);
+      }
+
+      // success case
+      getApi().copyBlob(copySource, privateContainer, "to-if-unmodifed-since", CopyBlobOptions.builder().ifUnmodifiedSince(after).build());
+      AzureBlob getBlob = getApi().getBlob(privateContainer, "to-if-unmodifed-since");
+      assertEquals(ByteStreams2.toByteArrayAndClose(getBlob.getPayload().openStream()), byteSource.read());
+   }
+
+   @Test(timeOut = 5 * 60 * 1000, dependsOnMethods = { "testCreateContainer" })
+   public void testCopyBlobIfMatch() throws Exception {
+      ByteSource byteSource = TestUtils.randomByteSource().slice(0, 1024);
+
+      // create blob
+      AzureBlob object = getApi().newBlob();
+      object.getProperties().setName("from");
+      object.setPayload(byteSource.read());
+      String eTag = getApi().putBlob(privateContainer, object);
+      String fakeETag = "0x8CEB669D794AFE2";
+
+      URI copySource = view.getSigner().signGetBlob(privateContainer, "from").getEndpoint();
+
+      // failure case
+      try {
+         getApi().copyBlob(copySource, privateContainer, "to-if-match", CopyBlobOptions.builder().ifMatch(fakeETag).build());
+         failBecauseExceptionWasNotThrown(AzureStorageResponseException.class);
+      } catch (AzureStorageResponseException asre) {
+         assertThat(asre.getResponse().getStatusCode()).as("status code").isEqualTo(412);
+      }
+
+      // success case
+      getApi().copyBlob(copySource, privateContainer, "to-if-match", CopyBlobOptions.builder().ifMatch(eTag).build());
+      AzureBlob getBlob = getApi().getBlob(privateContainer, "to-if-match");
+      assertEquals(ByteStreams2.toByteArrayAndClose(getBlob.getPayload().openStream()), byteSource.read());
+   }
+
+   @Test(timeOut = 5 * 60 * 1000, dependsOnMethods = { "testCreateContainer" })
+   public void testCopyBlobIfNoneMatch() throws Exception {
+      ByteSource byteSource = TestUtils.randomByteSource().slice(0, 1024);
+
+      // create blob
+      AzureBlob object = getApi().newBlob();
+      object.getProperties().setName("from");
+      object.setPayload(byteSource.read());
+      String eTag = getApi().putBlob(privateContainer, object);
+      String fakeETag = "0x8CEB669D794AFE2";
+
+      URI copySource = view.getSigner().signGetBlob(privateContainer, "from").getEndpoint();
+
+      // failure case
+      try {
+         getApi().copyBlob(copySource, privateContainer, "to-if-none-match", CopyBlobOptions.builder().ifNoneMatch(eTag).build());
+         failBecauseExceptionWasNotThrown(AzureStorageResponseException.class);
+      } catch (AzureStorageResponseException asre) {
+         assertThat(asre.getResponse().getStatusCode()).as("status code").isEqualTo(412);
+      }
+
+      // success case
+      getApi().copyBlob(copySource, privateContainer, "to-if-none-match", CopyBlobOptions.builder().ifNoneMatch(fakeETag).build());
+      AzureBlob getBlob = getApi().getBlob(privateContainer, "to-if-none-match");
+      assertEquals(ByteStreams2.toByteArrayAndClose(getBlob.getPayload().openStream()), byteSource.read());
+   }
+
+   @Test(timeOut = 5 * 60 * 1000, dependsOnMethods = { "testCreateContainer" })
+   public void testSetBlobProperties() throws Exception {
+      String blobName = "blob-name";
+      ByteSource byteSource = TestUtils.randomByteSource().slice(0, 1024);
+      String contentDisposition = "attachment; filename=photo.jpg";
+      String contentEncoding = "compress";
+      String contentLanguage = "en";
+      String contentType = "audio/ogg";
+
+      // create blob
+      AzureBlob object = getApi().newBlob();
+      object.getProperties().setName(blobName);
+      object.setPayload(byteSource.read());
+      getApi().putBlob(privateContainer, object);
+
+      // set properties
+      getApi().setBlobProperties(privateContainer, blobName, ContentMetadataBuilder.create()
+              .contentDisposition(contentDisposition)
+              .contentEncoding(contentEncoding)
+              .contentLanguage(contentLanguage)
+              .contentType(contentType)
+              .build());
+
+      // get properties
+      BlobProperties properties = getApi().getBlobProperties(privateContainer, blobName);
+      ContentMetadata contentMetadata = properties.getContentMetadata();
+      assertThat(contentMetadata.getContentDisposition()).isEqualTo(contentDisposition);
+      assertThat(contentMetadata.getContentEncoding()).isEqualTo(contentEncoding);
+      assertThat(contentMetadata.getContentLanguage()).isEqualTo(contentLanguage);
+      assertThat(contentMetadata.getContentType()).isEqualTo(contentType);
+   }
+
+   @Test(timeOut = 5 * 60 * 1000, dependsOnMethods = { "testCreateContainer" })
+   public void testSetBlobTier() throws Exception {
+      String blobName = "tier-blob-name";
+      ByteSource byteSource = TestUtils.randomByteSource().slice(0, 1024);
+
+      // create blob
+      AzureBlob object = getApi().newBlob();
+      object.getProperties().setName(blobName);
+      object.setPayload(byteSource.read());
+      getApi().putBlob(privateContainer, object);
+
+      // default
+      BlobProperties properties = getApi().getBlobProperties(privateContainer, blobName);
+      assertThat(properties.getTier()).isNull();
+
+      // hot
+      getApi().setBlobTier(privateContainer, blobName, AccessTier.HOT);
+      properties = getApi().getBlobProperties(privateContainer, blobName);
+      assertThat(properties.getTier()).isEqualTo(AccessTier.HOT);
+
+      // cool
+      getApi().setBlobTier(privateContainer, blobName, AccessTier.COOL);
+      properties = getApi().getBlobProperties(privateContainer, blobName);
+      assertThat(properties.getTier()).isEqualTo(AccessTier.COOL);
+
+      // archive
+      getApi().setBlobTier(privateContainer, blobName, AccessTier.ARCHIVE);
+      properties = getApi().getBlobProperties(privateContainer, blobName);
+      assertThat(properties.getTier()).isEqualTo(AccessTier.ARCHIVE);
    }
 }

@@ -16,15 +16,15 @@
  */
 package org.jclouds.softlayer.domain;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Strings.emptyToNull;
+import java.beans.ConstructorProperties;
+
+import org.jclouds.javax.annotation.Nullable;
+
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.inject.name.Named;
-import org.jclouds.javax.annotation.Nullable;
-
-import java.beans.ConstructorProperties;
-
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Strings.emptyToNull;
 
 /**
  * Class Address
@@ -194,7 +194,7 @@ public class Address {
                      @Nullable String address, @Nullable String city, @Nullable String contactName,
                      int isActive, int locationId, @Nullable String postalCode) {
       this.id = id;
-      this.accountId = checkNotNull(accountId, "accountId");
+      this.accountId = accountId;
       this.address = address;
       this.city = city;
       this.contactName = contactName;
@@ -239,7 +239,6 @@ public class Address {
    /**
     * @return The id of the account.
     */
-   @Nullable
    public int getAccountId() {
       return accountId;
    }
@@ -271,7 +270,6 @@ public class Address {
    /**
     * @return The name of the contact.
     */
-   @Nullable
    public int isActive() {
       return isActive;
    }
@@ -279,7 +277,6 @@ public class Address {
    /**
     * @return The id of the location.
     */
-   @Nullable
    public int getLocationId() {
       return locationId;
    }

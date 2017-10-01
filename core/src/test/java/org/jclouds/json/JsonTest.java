@@ -20,19 +20,33 @@ import static com.google.common.io.BaseEncoding.base16;
 import static com.google.common.primitives.Bytes.asList;
 import static org.testng.Assert.assertEquals;
 
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 
+import org.jclouds.javax.annotation.Nullable;
 import org.jclouds.json.config.GsonModule;
 import org.jclouds.json.config.GsonModule.DefaultExclusionStrategy;
 import org.testng.annotations.Test;
 
+import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.gson.FieldAttributes;
+import com.google.gson.Gson;
+import com.google.gson.TypeAdapter;
+import com.google.gson.TypeAdapterFactory;
+import com.google.gson.reflect.TypeToken;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
 import com.google.inject.AbstractModule;
 import com.google.inject.Guice;
+import com.google.inject.Provides;
 import com.google.inject.TypeLiteral;
 
 @Test
@@ -84,7 +98,7 @@ public class JsonTest {
       assertEquals(obj2, obj);
       assertEquals(json.toJson(obj2), json.toJson(obj));
    }
-   
+
    static class ExcludeStringValue implements DefaultExclusionStrategy {
       public boolean shouldSkipClass(Class<?> clazz) {
         return false;
@@ -209,4 +223,198 @@ public class JsonTest {
                EnumInsideWithParser.Test.UNRECOGNIZED);
    }
 
+   @AutoValue
+   abstract static class SerializedNamesType {
+      abstract String id();
+
+      @Nullable abstract Map<String, String> volumes();
+
+      @SerializedNames({ "Id", "Volumes" })
+      private static SerializedNamesType create(String id, Map<String, String> volumes) {
+         return new AutoValue_JsonTest_SerializedNamesType(id, volumes);
+      }
+   }
+
+   public void autoValueSerializedNames() {
+      Json json = Guice.createInjector(new GsonModule()).getInstance(Json.class);
+
+      SerializedNamesType resource = SerializedNamesType.create("1234", Collections.<String, String>emptyMap());
+      String spinalJson = "{\"Id\":\"1234\",\"Volumes\":{}}";
+
+      assertEquals(json.toJson(resource), spinalJson);
+      assertEquals(json.fromJson(spinalJson, SerializedNamesType.class), resource);
+   }
+
+   public void autoValueWithBuilder() {
+      Json json = Guice.createInjector(new GsonModule()).getInstance(Json.class);
+
+      SerializedNamesWithBuilder resource = SerializedNamesWithBuilder.builder().id("1234").number(2).build();
+      String spinalJson = "{\"custom_id_name\":\"1234\",\"number\":2}";
+
+      assertEquals(json.toJson(resource), spinalJson);
+      assertEquals(json.fromJson(spinalJson, SerializedNamesWithBuilder.class), resource);
+   }
+
+   public void autoValueWithBuilderNested() {
+      Json json = Guice.createInjector(new GsonModule()).getInstance(Json.class);
+
+      SerializedNamesNestedWithBuilder resource = SerializedNamesNestedWithBuilder.builder().id("1234")
+            .snwb(ImmutableList.of(SerializedNamesWithBuilder.builder().id("5678").number(1).build())).build();
+
+      String spinalJson = "{\"nested_id_name\":\"1234\",\"serialized_name_with_builder\":[{\"custom_id_name\":\"5678\",\"number\":1}]}";
+
+      assertEquals(json.toJson(resource), spinalJson);
+      assertEquals(json.fromJson(spinalJson, SerializedNamesNestedWithBuilder.class), resource);
+   }
+
+   public void autoValueWithBuilderMissingNested() {
+      Json json = Guice.createInjector(new GsonModule()).getInstance(Json.class);
+
+      SerializedNamesNestedWithBuilder resource = SerializedNamesNestedWithBuilder.builder().id("1234")
+            .snwb(ImmutableList.<SerializedNamesWithBuilder>of()).build();
+
+      String spinalJson = "{\"nested_id_name\":\"1234\",\"serialized_name_with_builder\":[]}";
+
+      assertEquals(json.toJson(resource), spinalJson);
+      assertEquals(json.fromJson(spinalJson, SerializedNamesNestedWithBuilder.class), resource);
+   }
+
+   @AutoValue
+   abstract static class SerializedNamesNestedWithBuilder {
+      public abstract String getId();
+      @Nullable
+      public abstract List<SerializedNamesWithBuilder> getSnwb();
+
+      public static Builder builder() {
+         return new AutoValue_JsonTest_SerializedNamesNestedWithBuilder.Builder();
+      }
+      public abstract Builder toBuilder();
+
+      @AutoValue.Builder
+      public interface Builder {
+         Builder id(String id);
+         Builder snwb(List<SerializedNamesWithBuilder> snwb);
+         SerializedNamesNestedWithBuilder build();
+      }
+
+      @SerializedNames({"nested_id_name", "serialized_name_with_builder"})
+      private static SerializedNamesNestedWithBuilder create(String id, List<SerializedNamesWithBuilder> snwb) {
+         return builder().id(id).snwb(snwb).build();
+      }
+   }
+
+   @AutoValue
+   abstract static class SerializedNamesWithBuilder {
+      public abstract String getId();
+      public abstract int getNumber();
+
+      public static Builder builder() {
+         return new AutoValue_JsonTest_SerializedNamesWithBuilder.Builder();
+      }
+      public abstract Builder toBuilder();
+
+      @AutoValue.Builder
+      public interface Builder {
+         Builder id(String id);
+         Builder number(int number);
+         SerializedNamesWithBuilder build();
+      }
+
+      @SerializedNames({"custom_id_name", "number"})
+      private static SerializedNamesWithBuilder create(String id, int number) {
+         return builder().id(id).number(number).build();
+      }
+   }
+
+   @AutoValue
+   abstract static class SerializedNamesTooFewType {
+      abstract String id();
+
+      @Nullable abstract Map<String, String> volumes();
+
+      @SerializedNames("Id") // TODO: check things like this with error-prone, not runtime!
+      private static SerializedNamesTooFewType create(String id, Map<String, String> volumes) {
+         return new AutoValue_JsonTest_SerializedNamesTooFewType(id, volumes);
+      }
+   }
+
+   /** Common problem. Someone adds a parameter, but forgets to add it to the names list. */
+   @Test(expectedExceptions = IllegalStateException.class, expectedExceptionsMessageRegExp = "Incorrect number .*")
+   public void autoValueSerializedNames_tooFew() {
+      Json json = Guice.createInjector(new GsonModule()).getInstance(Json.class);
+      json.toJson(SerializedNamesTooFewType.create("1234", null));
+   }
+
+   public void autoValueSerializedNames_nullValueInJson() {
+      Json json = Guice.createInjector(new GsonModule()).getInstance(Json.class);
+
+      assertEquals(json.fromJson("{\"Id\":\"1234\",\"Volumes\":null}", SerializedNamesType.class),
+            SerializedNamesType.create("1234", null));
+   }
+
+   @AutoValue
+   abstract static class NestedSerializedNamesType {
+      abstract SerializedNamesType item();
+      abstract List<SerializedNamesType> items();
+
+      @SerializedNames({ "Item", "Items" })
+      private static NestedSerializedNamesType create(SerializedNamesType item, List<SerializedNamesType> items) {
+         return new AutoValue_JsonTest_NestedSerializedNamesType(item, items);
+      }
+   }
+
+   private final NestedSerializedNamesType nested = NestedSerializedNamesType
+         .create(SerializedNamesType.create("1234", Collections.<String, String>emptyMap()),
+               Arrays.asList(SerializedNamesType.create("5678", ImmutableMap.of("Foo", "Bar"))));
+
+   public void autoValueSerializedNames_nestedType() {
+      Json json = Guice.createInjector(new GsonModule()).getInstance(Json.class);
+
+      String spinalJson = "{\"Item\":{\"Id\":\"1234\",\"Volumes\":{}},\"Items\":[{\"Id\":\"5678\",\"Volumes\":{\"Foo\":\"Bar\"}}]}";
+
+      assertEquals(json.toJson(nested), spinalJson);
+      assertEquals(json.fromJson(spinalJson, NestedSerializedNamesType.class), nested);
+   }
+
+   public void autoValueSerializedNames_overriddenTypeAdapterFactory() {
+      Json json = Guice.createInjector(new GsonModule(), new AbstractModule() {
+         @Override protected void configure() {
+         }
+
+         @Provides public Set<TypeAdapterFactory> typeAdapterFactories() {
+            return ImmutableSet.<TypeAdapterFactory>of(new NestedSerializedNamesTypeAdapterFactory());
+         }
+      }).getInstance(Json.class);
+
+      assertEquals(json.toJson(nested), "{\"id\":\"1234\",\"count\":1}");
+      assertEquals(json.fromJson("{\"id\":\"1234\",\"count\":1}", NestedSerializedNamesType.class), nested);
+   }
+
+   private class NestedSerializedNamesTypeAdapterFactory extends TypeAdapter<NestedSerializedNamesType>
+         implements TypeAdapterFactory {
+
+      @Override public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> typeToken) {
+         if (!(NestedSerializedNamesType.class.isAssignableFrom(typeToken.getRawType()))) {
+            return null;
+         }
+         return (TypeAdapter<T>) this;
+      }
+
+      @Override public void write(JsonWriter out, NestedSerializedNamesType value) throws IOException {
+         out.beginObject();
+         out.name("id").value(value.item().id());
+         out.name("count").value(value.items().size());
+         out.endObject();
+      }
+
+      @Override public NestedSerializedNamesType read(JsonReader in) throws IOException {
+         in.beginObject();
+         in.nextName();
+         in.nextString();
+         in.nextName();
+         in.nextInt();
+         in.endObject();
+         return nested;
+      }
+   }
 }

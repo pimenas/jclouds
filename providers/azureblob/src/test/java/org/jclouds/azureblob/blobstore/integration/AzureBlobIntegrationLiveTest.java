@@ -16,40 +16,28 @@
  */
 package org.jclouds.azureblob.blobstore.integration;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 
-import com.google.common.io.ByteSource;
-import com.google.common.io.Files;
-import org.jclouds.azureblob.blobstore.strategy.MultipartUploadStrategy;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.integration.internal.BaseBlobIntegrationTest;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.utils.TestUtils;
 import org.testng.SkipException;
 import org.testng.annotations.Test;
-import static org.testng.Assert.assertEquals;
-
-import static com.google.common.hash.Hashing.md5;
 
 @Test(groups = "live")
 public class AzureBlobIntegrationLiveTest extends BaseBlobIntegrationTest {
-    private ByteSource oneHundredOneConstitutions;
-    private byte[] oneHundredOneConstitutionsMD5;
+   @Override
+   protected long getMinimumMultipartBlobSize() {
+      return view.getBlobStore().getMaximumMultipartPartSize() + 1;
+   }
 
    public AzureBlobIntegrationLiveTest() {
       provider = "azureblob";
    }
+
+   // TODO: Azure response has a quoted ETag but request requires unquoted ETag
    @Override
    public void testGetIfMatch() throws InterruptedException {
-      // this currently fails
-   }
-
-    @Override
-    public void testGetIfModifiedSince() throws InterruptedException {
-       // this currently fails!
+      throw new SkipException("not yet implemented");
    }
 
    public void testCreateBlobWithExpiry() throws InterruptedException {
@@ -57,57 +45,23 @@ public class AzureBlobIntegrationLiveTest extends BaseBlobIntegrationTest {
    }
 
    @Override
-   @Test(expectedExceptions = IllegalArgumentException.class)
+   @Test
    public void testPutObjectStream() throws InterruptedException, IOException, ExecutionException {
-      super.testPutObjectStream();
+      throw new SkipException("Azure requires a Content-Length");
    }
 
-   // according to docs, content disposition is not persisted
-   // http://msdn.microsoft.com/en-us/library/dd179440.aspx
-   @Override
-   protected void checkContentDisposition(Blob blob, String contentDisposition) {
-      assert blob.getPayload().getContentMetadata().getContentDisposition() == null;
-      assert blob.getMetadata().getContentMetadata().getContentDisposition() == null;
+   @Test(groups = { "integration", "live" })
+   public void testSetBlobAccess() throws Exception {
+      throw new SkipException("unsupported in Azure");
    }
 
-   /**
-    * Essentially copied from the AWS multipart chucked stream test
-    */
-   public void testMultipartChunkedFileStream() throws IOException, InterruptedException {
-      oneHundredOneConstitutions = getTestDataSupplier();
-      oneHundredOneConstitutionsMD5 = oneHundredOneConstitutions.hash(md5()).asBytes();
-      File file = new File("target/const.txt");
-      oneHundredOneConstitutions.copyTo(Files.asByteSink(file));
-      String containerName = getContainerName();
-
-      try {
-         BlobStore blobStore = view.getBlobStore();
-         blobStore.createContainerInLocation(null, containerName);
-         Blob blob = blobStore.blobBuilder("const.txt").payload(file).build();
-         String expected = blobStore.putBlob(containerName, blob, PutOptions.Builder.multipart());
-         String etag = blobStore.blobMetadata(containerName, "const.txt").getETag();
-         assertEquals(etag, expected);
-      } finally {
-         returnContainer(containerName);
-      }
+   @Test(groups = { "integration", "live" }, expectedExceptions = UnsupportedOperationException.class)
+   public void testPutBlobAccess() throws Exception {
+      super.testPutBlobAccess();
    }
 
-   public void testMultipartChunkedFileStreamPowerOfTwoSize() throws IOException, InterruptedException {
-      final long limit = MultipartUploadStrategy.MAX_BLOCK_SIZE;
-      ByteSource input = TestUtils.randomByteSource().slice(0, limit);
-      File file = new File("target/const.txt");
-      input.copyTo(Files.asByteSink(file));
-      String containerName = getContainerName();
-
-      try {
-         BlobStore blobStore = view.getBlobStore();
-         blobStore.createContainerInLocation(null, containerName);
-         Blob blob = blobStore.blobBuilder("const.txt").payload(file).build();
-         String expected = blobStore.putBlob(containerName, blob, PutOptions.Builder.multipart());
-         String etag = blobStore.blobMetadata(containerName, "const.txt").getETag();
-         assertEquals(etag, expected);
-      } finally {
-         returnContainer(containerName);
-      }
+   @Test(groups = { "integration", "live" }, expectedExceptions = UnsupportedOperationException.class)
+   public void testPutBlobAccessMultipart() throws Exception {
+      super.testPutBlobAccessMultipart();
    }
 }

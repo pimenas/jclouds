@@ -28,6 +28,7 @@ import javax.inject.Named;
 import javax.inject.Provider;
 import javax.inject.Singleton;
 
+import org.jclouds.date.TimeStamp;
 import org.jclouds.domain.JsonBall;
 import org.jclouds.json.Json;
 import org.jclouds.ohai.Automatic;
@@ -59,13 +60,17 @@ public class OhaiModule extends AbstractModule {
 
    @Provides
    @Automatic
+   protected final Supplier<Map<String, JsonBall>> guiceProvideAutomatic(AutomaticSupplier in) {
+      return provideAutomatic(in);
+   }
+
    protected Supplier<Map<String, JsonBall>> provideAutomatic(AutomaticSupplier in) {
       return in;
    }
 
    @Provides
    @Automatic
-   Multimap<String, Supplier<JsonBall>> provideAutomatic(MapSetToMultimap<String, Supplier<JsonBall>> converter,
+   final Multimap<String, Supplier<JsonBall>> provideAutomatic(MapSetToMultimap<String, Supplier<JsonBall>> converter,
          @Automatic Map<String, Set<Supplier<JsonBall>>> input) {
       return converter.apply(input);
 
@@ -73,6 +78,10 @@ public class OhaiModule extends AbstractModule {
 
    @Named("systemProperties")
    @Provides
+   protected final Properties provideSystemProperties() {
+      return systemProperties();
+   }
+
    protected Properties systemProperties() {
       return System.getProperties();
    }
@@ -92,7 +101,7 @@ public class OhaiModule extends AbstractModule {
       private final Provider<Long> timeProvider;
 
       @Inject
-      OhaiTimeProvider(Provider<Long> timeProvider) {
+      OhaiTimeProvider(@TimeStamp Provider<Long> timeProvider) {
          this.timeProvider = timeProvider;
       }
 
@@ -104,6 +113,11 @@ public class OhaiModule extends AbstractModule {
    }
 
    @Provides
+   @TimeStamp
+   protected final Long provideMillis() {
+      return millis();
+   }
+
    protected Long millis() {
       return System.currentTimeMillis();
    }

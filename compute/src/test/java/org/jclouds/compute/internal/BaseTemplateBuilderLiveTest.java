@@ -16,42 +16,36 @@
  */
 package org.jclouds.compute.internal;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.jclouds.compute.util.ComputeServiceUtils.getCores;
+import static org.jclouds.utils.TestUtils.NO_INVOCATIONS;
+import static org.jclouds.utils.TestUtils.SINGLE_NO_ARG_INVOCATION;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertTrue;
 
 import java.io.IOException;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.NoSuchElementException;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.jclouds.compute.ComputeServiceContext;
-import org.jclouds.compute.config.BaseComputeServiceContextModule;
 import org.jclouds.compute.domain.Hardware;
 import org.jclouds.compute.domain.OsFamily;
-import org.jclouds.compute.domain.OsFamilyVersion64Bit;
 import org.jclouds.compute.domain.Template;
-import org.jclouds.compute.domain.TemplateBuilder;
-import org.jclouds.compute.reference.ComputeServiceConstants;
+import org.jclouds.compute.domain.internal.ArbitraryCpuRamTemplateBuilderImpl;
+import org.jclouds.compute.util.AutomaticHardwareIdSpec;
 import org.jclouds.domain.Location;
 import org.jclouds.domain.LocationScope;
 import org.jclouds.domain.LoginCredentials;
-import org.jclouds.json.Json;
-import org.jclouds.json.config.GsonModule;
 import org.jclouds.rest.config.CredentialStoreModule;
+import org.testng.SkipException;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Sets;
 import com.google.common.io.ByteSource;
-import com.google.inject.Guice;
 import com.google.inject.Module;
 
 @Test(groups = "integration,live")
@@ -63,10 +57,6 @@ public abstract class BaseTemplateBuilderLiveTest extends BaseComputeServiceCont
       Hardware smallest = view.getComputeService().templateBuilder().smallest().build().getHardware();
       Hardware fastest = view.getComputeService().templateBuilder().fastest().build().getHardware();
       Hardware biggest = view.getComputeService().templateBuilder().biggest().build().getHardware();
-
-      System.out.printf("smallest %s%n", smallest);
-      System.out.printf("fastest %s%n", fastest);
-      System.out.printf("biggest %s%n", biggest);
 
       assertEquals(defaultSize, smallest);
 
@@ -86,66 +76,6 @@ public abstract class BaseTemplateBuilderLiveTest extends BaseComputeServiceCont
             defaultTemplate.toString());
    }
 
-   @DataProvider(name = "osSupported")
-   public Object[][] osSupported() {
-      return convertToArray(Sets.filter(provideAllOperatingSystems(),
-            Predicates.not(defineUnsupportedOperatingSystems())));
-   }
-
-   protected Object[][] convertToArray(Set<OsFamilyVersion64Bit> supportedOperatingSystems) {
-      Object[][] returnVal = new Object[supportedOperatingSystems.size()][1];
-      int i = 0;
-      for (OsFamilyVersion64Bit config : supportedOperatingSystems)
-         returnVal[i++][0] = config;
-      return returnVal;
-   }
-
-   protected Predicate<OsFamilyVersion64Bit> defineUnsupportedOperatingSystems() {
-      return Predicates.alwaysFalse();
-   }
-
-   @DataProvider(name = "osNotSupported")
-   public Object[][] osNotSupported() {
-      return convertToArray(Sets.filter(provideAllOperatingSystems(), defineUnsupportedOperatingSystems()));
-   }
-
-   protected Set<OsFamilyVersion64Bit> provideAllOperatingSystems() {
-      Map<OsFamily, Map<String, String>> map = new BaseComputeServiceContextModule() {
-      }.provideOsVersionMap(new ComputeServiceConstants.ReferenceData(), Guice.createInjector(new GsonModule())
-            .getInstance(Json.class));
-
-      Set<OsFamilyVersion64Bit> supportedOperatingSystems = Sets.newHashSet();
-      for (Entry<OsFamily, Map<String, String>> osVersions : map.entrySet()) {
-         for (String version : Sets.newHashSet(osVersions.getValue().values())) {
-            supportedOperatingSystems.add(new OsFamilyVersion64Bit(osVersions.getKey(), version, false));
-            supportedOperatingSystems.add(new OsFamilyVersion64Bit(osVersions.getKey(), version, true));
-         }
-      }
-      return supportedOperatingSystems;
-   }
-
-   @Test(dataProvider = "osSupported")
-   public void testTemplateBuilderCanFind(OsFamilyVersion64Bit matrix) throws InterruptedException {
-      TemplateBuilder builder = view.getComputeService().templateBuilder().osFamily(matrix.family)
-            .os64Bit(matrix.is64Bit);
-      if (!matrix.version.equals(""))
-         builder.osVersionMatches("^" + matrix.version + "$");
-      Template template = builder.build();
-      if (!matrix.version.equals(""))
-         assertEquals(template.getImage().getOperatingSystem().getVersion(), matrix.version);
-      assertEquals(template.getImage().getOperatingSystem().is64Bit(), matrix.is64Bit);
-      assertEquals(template.getImage().getOperatingSystem().getFamily(), matrix.family);
-   }
-
-   @Test(dataProvider = "osNotSupported", expectedExceptions = NoSuchElementException.class)
-   public void testTemplateBuilderCannotFind(OsFamilyVersion64Bit matrix) throws InterruptedException {
-      TemplateBuilder builder = view.getComputeService().templateBuilder().osFamily(matrix.family)
-            .os64Bit(matrix.is64Bit);
-      if (!matrix.version.equals(""))
-         builder.osVersionMatches("^" + matrix.version + "$");
-      builder.build();
-   }
-
    @Test
    public void testTemplateBuilderCanUseImageId() throws Exception {
       Template defaultTemplate = view.getComputeService().templateBuilder().build();
@@ -160,8 +90,8 @@ public abstract class BaseTemplateBuilderLiveTest extends BaseComputeServiceCont
    @Test
    public void testDefaultTemplateBuilder() throws IOException {
       Template defaultTemplate = view.getComputeService().templateBuilder().build();
-      assert defaultTemplate.getImage().getOperatingSystem().getVersion().matches("1[012].[10][04]") : defaultTemplate
-            .getImage().getOperatingSystem().getVersion();
+      assertTrue(defaultTemplate.getImage().getOperatingSystem().getVersion().matches("\\d+\\.\\d+"),
+            "Version mismatch, expected dd.dd, found: " + defaultTemplate.getImage().getOperatingSystem().getVersion());
       assertEquals(defaultTemplate.getImage().getOperatingSystem().is64Bit(), true);
       assertEquals(defaultTemplate.getImage().getOperatingSystem().getFamily(), OsFamily.UBUNTU);
       assertEquals(getCores(defaultTemplate.getHardware()), 1.0d);
@@ -173,7 +103,6 @@ public abstract class BaseTemplateBuilderLiveTest extends BaseComputeServiceCont
    public void testGetAssignableLocations() throws Exception {
       assertProvider(view.unwrap());
       for (Location location : view.getComputeService().listAssignableLocations()) {
-         System.err.printf("location %s%n", location);
          assert location.getId() != null : location;
          assert location != location.getParent() : location;
          assert location.getScope() != null : location;
@@ -235,7 +164,7 @@ public abstract class BaseTemplateBuilderLiveTest extends BaseComputeServiceCont
 
          context = createView(overrides, setupModules());
 
-         assertEquals(context.getComputeService().templateBuilder().build().toString(), defaultTemplate.toString());
+         assertEqualsTemplate(context.getComputeService().templateBuilder().build(), defaultTemplate);
       } finally {
          if (context != null)
             context.close();
@@ -248,7 +177,7 @@ public abstract class BaseTemplateBuilderLiveTest extends BaseComputeServiceCont
 
          context = createView(overrides, setupModules());
 
-         assertEquals(context.getComputeService().templateBuilder().build().toString(), defaultTemplate.toString());
+         assertEqualsTemplate(context.getComputeService().templateBuilder().build(), defaultTemplate);
       } finally {
          if (context != null)
             context.close();
@@ -269,9 +198,11 @@ public abstract class BaseTemplateBuilderLiveTest extends BaseComputeServiceCont
       ComputeServiceContext context = null;
       try {
          Properties overrides = setupProperties();
-         String login = template != null && template.getLoginUser() != null ? template.getLoginUser() : "foo:bar";
+         String login = templateBuilderSpec != null && templateBuilderSpec.getLoginUser() != null ? templateBuilderSpec
+               .getLoginUser() : "foo:bar";
          overrides.setProperty(propertyKey + ".image.login-user", login);
-         boolean auth = template != null && template.getAuthenticateSudo() != null ? template.getAuthenticateSudo() : true;
+         boolean auth = templateBuilderSpec != null && templateBuilderSpec.getAuthenticateSudo() != null ? templateBuilderSpec
+               .getAuthenticateSudo() : true;
          overrides.setProperty(propertyKey + ".image.authenticate-sudo", auth + "");
 
          context = createView(overrides, ImmutableSet.<Module>of(credentialStoreModule));
@@ -292,6 +223,109 @@ public abstract class BaseTemplateBuilderLiveTest extends BaseComputeServiceCont
       assertEquals(provider.getScope(), LocationScope.PROVIDER);
       assertEquals(provider.getParent(), null);
       assertEquals(provider.getIso3166Codes(), getIso3166Codes());
+   }
+
+   static void assertEqualsTemplate(Template actual, Template expected){
+      assertEquals(actual.getImage(), expected.getImage());
+      assertEquals(actual.getHardware(), expected.getHardware());
+      assertEquals(actual.getOptions(), expected.getOptions());
+      assertTrue(actual.getLocation().getScope().compareTo(expected.getLocation().getScope()) <= 0);
+   }
+
+   @DataProvider
+   public Object[][] onlyIfAutomaticHardwareSupported() {
+      return  view.getComputeService().templateBuilder() instanceof ArbitraryCpuRamTemplateBuilderImpl ?
+            SINGLE_NO_ARG_INVOCATION : NO_INVOCATIONS;
+   }
+
+   @Test(dataProvider = "onlyIfAutomaticHardwareSupported", groups = {"integration", "live"})
+   public void testAutoGeneratedHardwareFromId() {
+      Template template = view.getComputeService().templateBuilder()
+            .hardwareId("automatic:cores=2;ram=1024").build();
+      assertThat(template.getHardware().getId()).isEqualTo("automatic:cores=2.0;ram=1024");
+      assertThat(template.getHardware().getRam()).isEqualTo(1024);
+      assertThat(template.getHardware().getProcessors().get(0).getCores()).isEqualTo(2);
+   }
+
+   @Test(dataProvider = "onlyIfAutomaticHardwareSupported", groups = {"integration", "live"})
+   public void testAutoGeneratedHardwareMatchHardwareProfile() {
+      if (!view.getComputeService().listHardwareProfiles().isEmpty()) {
+         Template template = view.getComputeService().templateBuilder()
+               .minRam(2048).minCores(2).build();
+         assertThat(AutomaticHardwareIdSpec.isAutomaticId(template.getHardware().getId())).isFalse();
+         assertThat(template.getHardware().getRam()).isGreaterThanOrEqualTo(2048);
+         assertThat(template.getHardware().getProcessors().get(0).getCores()).isGreaterThanOrEqualTo(2);
+      }
+      else {
+         throw new SkipException("Hardware profile list is empty, this provider can not match any hardware profile" +
+               "to the specified minRam and minCores.");
+      }
+   }
+
+   @Test(dataProvider = "onlyIfAutomaticHardwareSupported", groups = {"integration", "live"})
+   public void testAutoGeneratedHardwareWithMinCoresAndMinRam() {
+      if (view.getComputeService().listHardwareProfiles().isEmpty()) {
+         Template template = view.getComputeService().templateBuilder()
+               .minRam(2048).minCores(2).build();
+         assertThat(AutomaticHardwareIdSpec.isAutomaticId(template.getHardware().getId())).isTrue();
+         assertThat(template.getHardware().getRam()).isEqualTo(2048);
+         assertThat(template.getHardware().getProcessors().get(0).getCores()).isEqualTo(2);
+      }
+      else {
+         throw new SkipException("Hardware profile list not empty.");
+      }
+   }
+
+   @Test(dataProvider = "onlyIfAutomaticHardwareSupported", groups = {"integration", "live"})
+   public void testAutoGeneratedHardwareWithOnlyMinCoresMatchHardwareProfile() {
+      if (!view.getComputeService().listHardwareProfiles().isEmpty()) {
+         Template template = view.getComputeService().templateBuilder().minCores(4).build();
+         assertThat(AutomaticHardwareIdSpec.isAutomaticId(template.getHardware().getId())).isFalse();
+         assertThat(template.getHardware().getProcessors().get(0).getCores()).isGreaterThanOrEqualTo(4);
+      }
+      else {
+         throw new SkipException("Hardware profile list is empty, this provider can not match any hardware profile" +
+               "to the specified minRam and minCores.");
+      }
+   }
+
+   @Test(dataProvider = "onlyIfAutomaticHardwareSupported", groups = {"integration", "live"})
+   public void testAutoGeneratedHardwareWithOnlyMinRamMatchHardwareProfile() {
+      if (!view.getComputeService().listHardwareProfiles().isEmpty()) {
+         Template template = view.getComputeService().templateBuilder().minRam(4096).build();
+         assertThat(AutomaticHardwareIdSpec.isAutomaticId(template.getHardware().getId())).isFalse();
+         assertThat(template.getHardware().getRam()).isGreaterThanOrEqualTo(4096);
+      }
+      else {
+         throw new SkipException("Hardware profile list is empty, this provider can not match any hardware profile" +
+               "to the specified minRam and minCores.");
+      }
+   }
+
+   @Test(dataProvider = "onlyIfAutomaticHardwareSupported", groups = {"integration", "live"},
+         expectedExceptions = IllegalArgumentException.class,
+         expectedExceptionsMessageRegExp = "No hardware profile matching the given criteria was found. " +
+         "If you want to use exact values, please set the minCores and minRam values")
+   public void testAutoGeneratedHardwareWithOnlyMinRamNotMatchHardwareProfile() {
+      if (view.getComputeService().listHardwareProfiles().isEmpty()) {
+         view.getComputeService().templateBuilder().minRam(4096).build();
+      }
+      else {
+         throw new SkipException("Hardware profile list not empty.");
+      }
+   }
+
+   @Test(dataProvider = "onlyIfAutomaticHardwareSupported", groups = {"integration", "live"},
+         expectedExceptions = IllegalArgumentException.class,
+         expectedExceptionsMessageRegExp = "No hardware profile matching the given criteria was found. " +
+               "If you want to use exact values, please set the minCores and minRam values")
+   public void testAutoGeneratedHardwareWithOnlyMinCoresNotMatchHardwareProfile() {
+      if (view.getComputeService().listHardwareProfiles().isEmpty()) {
+         view.getComputeService().templateBuilder().minCores(4).build();
+      }
+      else {
+         throw new SkipException("Hardware profile list not empty.");
+      }
    }
 
 }

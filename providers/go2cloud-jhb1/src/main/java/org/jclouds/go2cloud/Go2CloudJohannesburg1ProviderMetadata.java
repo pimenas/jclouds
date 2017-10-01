@@ -23,10 +23,12 @@ import org.jclouds.elasticstack.ElasticStackApiMetadata;
 import org.jclouds.providers.ProviderMetadata;
 import org.jclouds.providers.internal.BaseProviderMetadata;
 
+import com.google.auto.service.AutoService;
+
 /**
- * Implementation of {@link org.jclouds.types.ProviderMetadata} for Go2Cloud's Johannesburg1
- * provider.
+ * Implementation of {@link ProviderMetadata} for Go2Cloud's Johannesburg1 provider.
  */
+@AutoService(ProviderMetadata.class)
 public class Go2CloudJohannesburg1ProviderMetadata extends BaseProviderMetadata {
 
    public static Builder builder() {
@@ -51,9 +53,7 @@ public class Go2CloudJohannesburg1ProviderMetadata extends BaseProviderMetadata 
       return properties;
    }
 
-   public static class Builder
-         extends
-         BaseProviderMetadata.Builder {
+   public static class Builder extends BaseProviderMetadata.Builder {
 
       protected Builder() {
          id("go2cloud-jhb1")
@@ -62,7 +62,7 @@ public class Go2CloudJohannesburg1ProviderMetadata extends BaseProviderMetadata 
          .homepage(URI.create("https://jhb1.go2cloud.co.za"))
          .console(URI.create("https://jhb1.go2cloud.co.za/accounts"))
          .iso3166Codes("ZA-GP")
-         .endpoint("https://api.jhb1.go2cloud.co.za")
+         .endpoint("https://api-jhb1.go2cloud.co.za")
          .defaultProperties(Go2CloudJohannesburg1ProviderMetadata.defaultProperties());
       }
 
@@ -72,8 +72,7 @@ public class Go2CloudJohannesburg1ProviderMetadata extends BaseProviderMetadata 
       }
 
       @Override
-      public Builder fromProviderMetadata(
-            ProviderMetadata in) {
+      public Builder fromProviderMetadata(ProviderMetadata in) {
          super.fromProviderMetadata(in);
          return this;
       }

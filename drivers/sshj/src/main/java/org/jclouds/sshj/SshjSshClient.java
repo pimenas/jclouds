@@ -48,6 +48,7 @@ import net.schmizz.sshj.connection.channel.direct.PTYMode;
 import net.schmizz.sshj.connection.channel.direct.Session;
 import net.schmizz.sshj.connection.channel.direct.Session.Command;
 import net.schmizz.sshj.connection.channel.direct.SessionChannel;
+import net.schmizz.sshj.sftp.RemoteFile;
 import net.schmizz.sshj.sftp.SFTPClient;
 import net.schmizz.sshj.sftp.SFTPException;
 import net.schmizz.sshj.transport.TransportException;
@@ -148,15 +149,15 @@ public class SshjSshClient implements SshClient {
       checkArgument(loginCredentials.getOptionalPassword().isPresent() || loginCredentials.hasUnencryptedPrivateKey() || agentConnector.isPresent(),
               "you must specify a password, a key or an SSH agent needs to be available");
       this.backoffLimitedRetryHandler = checkNotNull(backoffLimitedRetryHandler, "backoffLimitedRetryHandler");
-      if (loginCredentials.getOptionalPassword().isPresent()) {
-         this.toString = String.format("%s:pw[%s]@%s:%d", loginCredentials.getUser(),
-               base16().lowerCase().encode(md5().hashString(loginCredentials.getOptionalPassword().get(), UTF_8).asBytes()), host,
-               socket.getPort());
-      } else if (loginCredentials.hasUnencryptedPrivateKey()) {
+      if (loginCredentials.hasUnencryptedPrivateKey()) {
          String fingerPrint = fingerprintPrivateKey(loginCredentials.getOptionalPrivateKey().get());
          String sha1 = sha1PrivateKey(loginCredentials.getOptionalPrivateKey().get());
          this.toString = String.format("%s:rsa[fingerprint(%s),sha1(%s)]@%s:%d", loginCredentials.getUser(),
                   fingerPrint, sha1, host, socket.getPort());
+      } else if (loginCredentials.getOptionalPassword().isPresent()) {
+         this.toString = String.format("%s:pw[%s]@%s:%d", loginCredentials.getUser(),
+               base16().lowerCase().encode(md5().hashString(loginCredentials.getOptionalPassword().get(), UTF_8).asBytes()), host,
+               socket.getPort());
       } else {
           this.toString = String.format("%s:rsa[ssh-agent]@%s:%d", loginCredentials.getUser(),
                   host, socket.getPort());
@@ -171,8 +172,8 @@ public class SshjSshClient implements SshClient {
    }
 
    private void checkConnected() {
-      checkState(sshClientConnection.ssh != null && sshClientConnection.ssh.isConnected(), String
-               .format("(%s) ssh not connected!", toString()));
+      checkState(sshClientConnection.ssh != null && sshClientConnection.ssh.isConnected(),
+               "(%s) ssh not connected!", this);
    }
 
    public interface Connection<T> {
@@ -215,8 +216,7 @@ public class SshjSshClient implements SshClient {
             }
          }
       }
-      assert false : "should not reach here";
-      return null;
+      throw new AssertionError("should not reach here");
    }
 
    public void connect() {
@@ -271,8 +271,18 @@ public class SshjSshClient implements SshClient {
       @Override
       public Payload create() throws Exception {
          sftp = acquire(sftpConnection);
-         return Payloads.newInputStreamPayload(new CloseFtpChannelOnCloseInputStream(sftp.getSFTPEngine().open(path)
-                  .getInputStream(), sftp));
+         final RemoteFile remoteFile = sftp.getSFTPEngine().open(path);
+         final InputStream in = remoteFile.new RemoteFileInputStream() {
+            @Override
+            public void close() throws IOException {
+               try {
+                  super.close();
+               } finally {
+                  remoteFile.close();
+               }
+            }
+         };
+         return Payloads.newInputStreamPayload(new CloseFtpChannelOnCloseInputStream(in, sftp));
       }
 
       @Override
@@ -400,6 +410,15 @@ public class SshjSshClient implements SshClient {
       }
    }
 
+   @Override
+   public boolean isConnected() {
+      try {
+         return sshClientConnection.getSSHClient().isConnected();
+      } catch (Exception e) {
+         throw Throwables.propagate(e);
+      }
+   }
+
    protected Connection<Session> execConnection() {
 
       return new Connection<Session>() {
@@ -449,9 +468,8 @@ public class SshjSshClient implements SshClient {
             Command output = session.exec(checkNotNull(command, "command"));
             String outputString = IOUtils.readFully(output.getInputStream()).toString();
             output.join(sshClientConnection.getSessionTimeout(), TimeUnit.MILLISECONDS);
-            int errorStatus = output.getExitStatus();
             String errorString = IOUtils.readFully(output.getErrorStream()).toString();
-            return new ExecResponse(outputString, errorString, errorStatus);
+            return new ExecResponse(outputString, errorString, output.getExitStatus());
          } finally {
             clear();
          }
@@ -500,8 +518,8 @@ public class SshjSshClient implements SshClient {
 
    class ExecChannelConnection implements Connection<ExecChannel> {
       private final String command;
-      private SessionChannel session;
       private Command output;
+      private Connection<Session> connection;
 
       ExecChannelConnection(String command) {
          this.command = checkNotNull(command, "command");
@@ -510,13 +528,19 @@ public class SshjSshClient implements SshClient {
       @Override
       public void clear() {
          Closeables2.closeQuietly(output);
-         Closeables2.closeQuietly(session);
+         try {
+             if (connection != null) {
+                 connection.clear();
+             }
+         } catch (Throwable e) {
+             Throwables.propagate(e);
+         }
       }
 
       @Override
       public ExecChannel create() throws Exception {
-         session = SessionChannel.class.cast(acquire(noPTYConnection()));
-         output = session.exec(command);
+         connection = noPTYConnection();
+         output = SessionChannel.class.cast(acquire(connection)).exec(command);
          return new ExecChannel(output.getOutputStream(), output.getInputStream(), output.getErrorStream(),
                   new Supplier<Integer>() {
 

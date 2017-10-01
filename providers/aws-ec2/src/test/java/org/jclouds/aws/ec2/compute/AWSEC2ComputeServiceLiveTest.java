@@ -17,9 +17,9 @@
 package org.jclouds.aws.ec2.compute;
 
 import static com.google.common.collect.Iterables.getOnlyElement;
-import static com.google.common.collect.Sets.newTreeSet;
 import static org.jclouds.compute.domain.OsFamily.AMZN_LINUX;
 import static org.jclouds.compute.options.RunScriptOptions.Builder.runAsRoot;
+import static org.jclouds.compute.util.ComputeServiceUtils.getCores;
 import static org.jclouds.ec2.util.IpPermissions.permit;
 import static org.testng.Assert.assertEquals;
 
@@ -41,13 +41,13 @@ import org.jclouds.cloudwatch.domain.GetMetricStatisticsResponse;
 import org.jclouds.cloudwatch.domain.Statistics;
 import org.jclouds.cloudwatch.domain.Unit;
 import org.jclouds.compute.domain.ExecResponse;
+import org.jclouds.compute.domain.Hardware;
 import org.jclouds.compute.domain.NodeMetadata;
 import org.jclouds.compute.domain.Template;
 import org.jclouds.compute.predicates.NodePredicates;
 import org.jclouds.domain.LoginCredentials;
 import org.jclouds.ec2.compute.EC2ComputeServiceLiveTest;
 import org.jclouds.ec2.domain.KeyPair;
-import org.jclouds.ec2.domain.SecurityGroup;
 import org.jclouds.ec2.features.InstanceApi;
 import org.jclouds.ec2.features.KeyPairApi;
 import org.jclouds.net.domain.IpProtocol;
@@ -56,7 +56,6 @@ import org.testng.annotations.Test;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.ListenableFuture;
 
 @Test(groups = "live", singleThreaded = true, testName = "AWSEC2ComputeServiceLiveTest")
@@ -65,6 +64,11 @@ public class AWSEC2ComputeServiceLiveTest extends EC2ComputeServiceLiveTest {
    public AWSEC2ComputeServiceLiveTest() {
       provider = "aws-ec2";
       group = "ec2";
+   }
+
+   @Override
+   protected void checkVolumes(Hardware hardware) {
+      // Not all hardware profiles define volumes. Don't check their size
    }
 
    @Override
@@ -92,7 +96,7 @@ public class AWSEC2ComputeServiceLiveTest extends EC2ComputeServiceLiveTest {
       template.getOptions().userMetadata(userMetadata);
       template.getOptions().tags(tags);
       template.getOptions().as(AWSEC2TemplateOptions.class).enableMonitoring();
-      template.getOptions().as(AWSEC2TemplateOptions.class).spotPrice(0.3f);
+      template.getOptions().as(AWSEC2TemplateOptions.class).spotPrice(0.05f);
 
       String startedId = null;
       try {
@@ -166,15 +170,6 @@ public class AWSEC2ComputeServiceLiveTest extends EC2ComputeServiceLiveTest {
             monitoringApi.close();
          }
 
-         // make sure we made our dummy group and also let in the user's group
-         assertEquals(newTreeSet(instance.getGroupNames()), ImmutableSortedSet.<String> of("jclouds#" + group, group));
-
-         // make sure our dummy group has no rules
-         SecurityGroup secgroup = getOnlyElement(securityGroupApi.describeSecurityGroupsInRegion(instance
-                  .getRegion(), "jclouds#" + group));
-
-         assert secgroup.size() == 0 : secgroup;
-
          // try to run a script with the original keyPair
          runScriptWithCreds(group, first.getOperatingSystem(), LoginCredentials.builder().user(
                   first.getCredentials().identity).privateKey(result.getKeyMaterial()).build());
@@ -188,5 +183,26 @@ public class AWSEC2ComputeServiceLiveTest extends EC2ComputeServiceLiveTest {
          }
          cleanupExtendedStuffInRegion(region, securityGroupApi, keyPairApi, group);
       }
+   }
+   
+   @Override
+   protected void doCompareSizes() throws Exception {
+      Hardware defaultSize = view.getComputeService().templateBuilder().build().getHardware();
+
+      Hardware smallest = view.getComputeService().templateBuilder().smallest().build().getHardware();
+      Hardware fastest = view.getComputeService().templateBuilder().fastest().build().getHardware();
+      Hardware biggest = view.getComputeService().templateBuilder().biggest().build().getHardware();
+
+      assertEquals(defaultSize, smallest);
+
+      assert getCores(smallest) <= getCores(fastest) : String.format("%s ! <= %s", smallest, fastest);
+      // m4.10xlarge is slower but has more cores than c4.8xlarge
+      // assert getCores(biggest) <= getCores(fastest) : String.format("%s ! <= %s", biggest, fastest);
+      // assert getCores(fastest) >= getCores(biggest) : String.format("%s ! >= %s", fastest, biggest);
+
+      assert biggest.getRam() >= fastest.getRam() : String.format("%s ! >= %s", biggest, fastest);
+      assert biggest.getRam() >= smallest.getRam() : String.format("%s ! >= %s", biggest, smallest);
+
+      assert getCores(fastest) >= getCores(smallest) : String.format("%s ! >= %s", fastest, smallest);
    }
 }

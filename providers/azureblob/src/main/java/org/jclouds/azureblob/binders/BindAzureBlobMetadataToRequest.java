@@ -22,6 +22,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
+import org.jclouds.azure.storage.reference.AzureStorageHeaders;
 import org.jclouds.azureblob.blobstore.functions.AzureBlobToBlob;
 import org.jclouds.azureblob.domain.AzureBlob;
 import org.jclouds.blobstore.binders.BindUserMetadataToHeadersWithPrefix;
@@ -57,7 +58,17 @@ public class BindAzureBlobMetadataToRequest implements Binder {
 
       Builder<String, String> headers = ImmutableMap.builder();
 
+      String cacheControl = blob.getPayload().getContentMetadata().getCacheControl();
+      if (cacheControl != null) {
+         headers.put(AzureStorageHeaders.CACHE_CONTROL, cacheControl);
+      }
+
       headers.put("x-ms-blob-type", blob.getProperties().getType().toString());
+
+      String contentDisposition = blob.getPayload().getContentMetadata().getContentDisposition();
+      if (contentDisposition != null) {
+         headers.put("x-ms-blob-content-disposition", contentDisposition);
+      }
 
       switch (blob.getProperties().getType()) {
       case PAGE_BLOB:
@@ -66,7 +77,7 @@ public class BindAzureBlobMetadataToRequest implements Binder {
          break;
       case BLOCK_BLOB:
          checkArgument(
-               checkNotNull(blob.getPayload().getContentMetadata().getContentLength(), "blob.getContentLength()") <= 64l * 1024 * 1024,
+               checkNotNull(blob.getPayload().getContentMetadata().getContentLength(), "blob.getContentLength()") <= 64L * 1024 * 1024,
                "maximum size for put Blob is 64MB");
          break;
       }

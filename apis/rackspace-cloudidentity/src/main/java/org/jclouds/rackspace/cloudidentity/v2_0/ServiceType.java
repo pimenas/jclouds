@@ -66,6 +66,16 @@ public final class ServiceType {
     */
    public static final String BIG_DATA = "rax:bigdata";
 
+   /**
+    * CDN
+    */
+   public static final String CDN = "rax:cdn";
+
+   /**
+    * Orchestration (Openstack Heat)
+    */
+   public static final String ORCHESTRATION = "orchestration";
+
    private ServiceType() {
       throw new AssertionError("intentionally unimplemented");
    }

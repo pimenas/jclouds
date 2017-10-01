@@ -64,6 +64,7 @@ public class TemplateOptions extends RunScriptOptions implements Cloneable {
    }
 
    public void copyTo(TemplateOptions to) {
+      super.copyTo(to);
       if (!Arrays.equals(to.getInboundPorts(), this.getInboundPorts()))
          to.inboundPorts(this.getInboundPorts());
       if (this.getRunScript() != null)
@@ -74,8 +75,6 @@ public class TemplateOptions extends RunScriptOptions implements Cloneable {
          to.installPrivateKey(this.getPrivateKey());
       if (this.getPublicKey() != null)
          to.authorizePublicKey(this.getPublicKey());
-      if (this.getPort() != -1)
-         to.blockOnPort(this.getPort(), this.getSeconds());
       if (!this.getUserMetadata().isEmpty())
          to.userMetadata(this.getUserMetadata());
       if (!this.getTags().isEmpty())
@@ -84,18 +83,6 @@ public class TemplateOptions extends RunScriptOptions implements Cloneable {
          to.nodeNames(getNodeNames());
       if (!this.shouldBlockUntilRunning())
          to.blockUntilRunning(false);
-      if (!this.shouldBlockOnComplete())
-         to.blockOnComplete(false);
-      if (this.getLoginUser() != null)
-         to.overrideLoginUser(this.getLoginUser());
-      if (this.getLoginPassword() != null)
-         to.overrideLoginPassword(this.getLoginPassword());
-      if (this.getLoginPrivateKey() != null)
-         to.overrideLoginPrivateKey(this.getLoginPrivateKey());
-      if (this.shouldAuthenticateSudo() != null)
-         to.overrideAuthenticateSudo(this.shouldAuthenticateSudo());
-      if (this.getTaskName() != null)
-         to.nameTask(this.getTaskName());
       if (!this.getNetworks().isEmpty())
          to.networks(this.getNetworks());
    }

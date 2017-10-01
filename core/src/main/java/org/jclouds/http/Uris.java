@@ -20,7 +20,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Strings.emptyToNull;
 import static com.google.common.collect.Multimaps.forMap;
 import static org.jclouds.http.utils.Queries.buildQueryLine;
-import static org.jclouds.http.utils.Queries.encodeQueryLine;
 import static org.jclouds.http.utils.Queries.queryParser;
 import static org.jclouds.util.Strings2.urlDecode;
 import static org.jclouds.util.Strings2.urlEncode;
@@ -28,20 +27,20 @@ import static org.jclouds.util.Strings2.urlEncode;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Map;
 
+import org.jclouds.http.utils.QueryValue;
 import org.jclouds.javax.annotation.Nullable;
 
 import com.google.common.annotations.Beta;
 import com.google.common.base.Function;
-import com.google.common.collect.ForwardingMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Multimaps;
 
 /**
  * Functions on {@code String}s and {@link URI}s. Strings can be level 1 <a
@@ -97,13 +96,15 @@ public final class Uris {
     *
     */
    public static final class UriBuilder {
+      private static final TransformObjectToQueryValue QUERY_VALUE_TRANSFORMER = new TransformObjectToQueryValue();
+
       // colon for urns, semicolon & equals for matrix params
       private Iterable<Character> skipPathEncoding = Lists.charactersOf("/:;=");
       private String scheme;
       private String host;
       private Integer port;
       private String path;
-      private Multimap<String, Object> query = DecodingMultimap.create();
+      private Multimap<String, Object> query = LinkedHashMultimap.create();
 
       /**
        * override default of {@code / : ; =}
@@ -144,7 +145,6 @@ public final class Uris {
       }
 
       public UriBuilder appendPath(String path) {
-         path = urlDecode(checkNotNull(path, "path"));
          if (this.path == null) {
             path(path);
          } else {
@@ -165,14 +165,16 @@ public final class Uris {
       }
 
       public UriBuilder query(Multimap<String, ?> parameters) {
-         checkNotNull(parameters, "parameters");
+         Multimap<String, QueryValue> queryValueMultimap = Multimaps.transformValues(
+               checkNotNull(parameters, "parameters"), QUERY_VALUE_TRANSFORMER);
          query.clear();
-         query.putAll(parameters);
+         query.putAll(queryValueMultimap);
          return this;
       }
 
       public UriBuilder addQuery(String name, Iterable<?> values) {
-         query.putAll(checkNotNull(name, "name"), checkNotNull(values, "values of %s", name));
+         query.putAll(checkNotNull(name, "name"), Iterables.transform(checkNotNull(values, "values of %s", name),
+               QUERY_VALUE_TRANSFORMER));
          return this;
       }
 
@@ -181,12 +183,16 @@ public final class Uris {
       }
 
       public UriBuilder addQuery(Multimap<String, ?> parameters) {
-         query.putAll(checkNotNull(parameters, "parameters"));
+         Multimap<String, QueryValue> queryValueMultimap = Multimaps.transformValues(
+               checkNotNull(parameters, "parameters"), QUERY_VALUE_TRANSFORMER);
+         query.putAll(queryValueMultimap);
          return this;
       }
 
       public UriBuilder replaceQuery(String name, Iterable<?> values) {
-         query.replaceValues(checkNotNull(name, "name"), checkNotNull(values, "values of %s", name));
+         Iterable<QueryValue> queryValues = Iterables.transform(checkNotNull(values, "values of %s", name),
+               QUERY_VALUE_TRANSFORMER);
+         query.replaceValues(checkNotNull(name, "name"), queryValues);
          return this;
       }
 
@@ -275,14 +281,24 @@ public final class Uris {
          this.scheme = uri.getScheme();
          this.host = uri.getHost();
          this.port = uri.getPort() == -1 ? null : uri.getPort();
-         if (uri.getPath() != null)
-            path(unescapeSpecialChars(uri.getPath()));
-         if (uri.getQuery() != null)
-            query(queryParser().apply(unescapeSpecialChars(uri.getQuery())));
+         if (uri.getRawPath() != null)
+            // path decodes the string, so we need to get at the raw (encoded) string
+            path(unescapeSpecialChars(uri.getRawPath()));
+         if (uri.getRawQuery() != null)
+            // The query parser decodes the strings that are passed to it; we should pass raw (encoded) queries
+            query(queryParser().apply(unescapeSpecialChars(uri.getRawQuery())));
       }
 
       public URI build() {
          return build(ImmutableMap.<String, Object> of());
+      }
+
+      public URI build(Map<String, ?> variables, boolean encodePath) {
+         try {
+            return new URI(expand(variables, encodePath));
+         } catch (URISyntaxException e) {
+            throw new IllegalArgumentException(e);
+         }
       }
 
       /**
@@ -291,13 +307,13 @@ public final class Uris {
        */
       public URI build(Map<String, ?> variables) {
          try {
-            return new URI(expand(variables));
+            return new URI(expand(variables, true));
          } catch (URISyntaxException e) {
             throw new IllegalArgumentException(e);
          }
       }
 
-      private String expand(Map<String, ?> variables) {
+      private String expand(Map<String, ?> variables, boolean encodePath) {
          StringBuilder b = new StringBuilder();
          if (scheme != null)
             b.append(scheme).append("://");
@@ -305,10 +321,16 @@ public final class Uris {
             b.append(UriTemplates.expand(host, variables));
          if (port != null)
             b.append(':').append(port);
-         if (path != null)
-            b.append(urlEncode(UriTemplates.expand(path, variables), skipPathEncoding));
-         if (!query.isEmpty())
-            b.append('?').append(encodeQueryLine(query));
+         if (path != null) {
+            if (encodePath) {
+               b.append(urlEncode(UriTemplates.expand(path, variables), skipPathEncoding));
+            } else {
+               b.append(UriTemplates.expand(path, variables));
+            }
+         }
+         if (!query.isEmpty()) {
+            b.append('?').append(buildQueryLine(query));
+         }
          return b.toString();
       }
 
@@ -374,52 +396,16 @@ public final class Uris {
       return in;
    }
 
-   /**
-    * Mutable and permits null values. Url decodes all mutations except {@link Multimap#putAll(Multimap)}
-    *
-    *
-    */
-   static final class DecodingMultimap extends ForwardingMultimap<String, Object> {
-
-      private static Multimap<String, Object> create() {
-         return new DecodingMultimap();
-      }
-
-      private final Multimap<String, Object> delegate = LinkedHashMultimap.create();
-      private final Function<Object, Object> urlDecoder = new Function<Object, Object>() {
-         public Object apply(Object in) {
-            if (in == null) {
-               return null;
-            }
-            return urlDecode(in.toString());
+   private static class TransformObjectToQueryValue implements Function<Object, QueryValue> {
+      @Override
+      public QueryValue apply(Object o) {
+         if (o == null) {
+            return null;
          }
-      };
-
-      @Override
-      public boolean put(String key, Object value) {
-         return super.put(urlDecode(key), urlDecoder.apply(value));
+         if (o instanceof QueryValue) {
+            return (QueryValue) o;
+         }
+         return new QueryValue(o.toString(), false);
       }
-
-      @Override
-      public boolean putAll(String key, Iterable<? extends Object> values) {
-         return super.putAll(urlDecode(key), Iterables.transform(values, urlDecoder));
-      }
-
-      @Override
-      public boolean putAll(Multimap<? extends String, ? extends Object> multimap) {
-         return super.putAll(multimap);
-      }
-
-      @Override
-      public Collection<Object> replaceValues(String key, Iterable<? extends Object> values) {
-         return super.replaceValues(urlDecode(key), Iterables.transform(values, urlDecoder));
-      }
-
-      @Override
-      protected Multimap<String, Object> delegate() {
-         return delegate;
-      }
-
    }
-
 }

@@ -22,8 +22,8 @@ import java.beans.ConstructorProperties;
 
 import com.google.common.base.CaseFormat;
 import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 
 /**
  * Listing of a server.

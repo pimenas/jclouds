@@ -16,20 +16,22 @@
  */
 package org.jclouds.softlayer;
 
-import org.jclouds.providers.ProviderMetadata;
-import org.jclouds.providers.internal.BaseProviderMetadata;
+import static org.jclouds.compute.config.ComputeServiceProperties.TEMPLATE;
+import static org.jclouds.softlayer.reference.SoftLayerConstants.PROPERTY_SOFTLAYER_VIRTUALGUEST_ACTIVE_TRANSACTIONS_DELAY;
+import static org.jclouds.softlayer.reference.SoftLayerConstants.PROPERTY_SOFTLAYER_VIRTUALGUEST_LOGIN_DETAILS_DELAY;
 
 import java.net.URI;
 import java.util.Properties;
 
-import static org.jclouds.compute.config.ComputeServiceProperties.TEMPLATE;
-import static org.jclouds.softlayer.reference.SoftLayerConstants.PROPERTY_SOFTLAYER_INCLUDE_PUBLIC_IMAGES;
-import static org.jclouds.softlayer.reference.SoftLayerConstants.PROPERTY_SOFTLAYER_VIRTUALGUEST_ACTIVE_TRANSACTIONS_DELAY;
-import static org.jclouds.softlayer.reference.SoftLayerConstants.PROPERTY_SOFTLAYER_VIRTUALGUEST_LOGIN_DETAILS_DELAY;
+import org.jclouds.providers.ProviderMetadata;
+import org.jclouds.providers.internal.BaseProviderMetadata;
+
+import com.google.auto.service.AutoService;
 
 /**
- * Implementation of {@link org.jclouds.providers.ProviderMetadata} for SoftLayer.
+ * Implementation of {@link ProviderMetadata} for SoftLayer.
  */
+@AutoService(ProviderMetadata.class)
 public class SoftLayerProviderMetadata extends BaseProviderMetadata {
 
    public static Builder builder() {
@@ -53,8 +55,7 @@ public class SoftLayerProviderMetadata extends BaseProviderMetadata {
       Properties properties = new Properties();
       properties.setProperty(PROPERTY_SOFTLAYER_VIRTUALGUEST_LOGIN_DETAILS_DELAY, "" + 60 * 60 * 1000);
       properties.setProperty(PROPERTY_SOFTLAYER_VIRTUALGUEST_ACTIVE_TRANSACTIONS_DELAY, "" + 3 * 60 * 1000);
-      properties.setProperty(PROPERTY_SOFTLAYER_INCLUDE_PUBLIC_IMAGES, "false");
-      properties.setProperty(TEMPLATE, "osFamily=UBUNTU,osVersionMatches=1[012].[01][04],os64Bit=true");
+      properties.setProperty(TEMPLATE, "osFamily=UBUNTU,osVersionMatches=1[01234].[01][04],os64Bit=true");
       return properties;
    }
 
@@ -66,7 +67,7 @@ public class SoftLayerProviderMetadata extends BaseProviderMetadata {
          .apiMetadata(new SoftLayerApiMetadata())
          .homepage(URI.create("http://www.softlayer.com"))
          .console(URI.create("https://manage.softlayer.com"))
-         .iso3166Codes("SG", "US-CA", "US-TX", "US-VA", "US-WA", "US-TX", "NL", "HK", "NSFTW-IL")  // NSFTW-IL is a weird isoCode returned by Softlayer
+         .iso3166Codes("SG", "US-CA", "US-TX", "US-VA", "US-WA", "NL", "HK", "NSFTW-IL", "AU", "CA-ON", "GB", "FR", "IT", "DE", "JP", "MX", "CA-ON", "CA-QC")
          .endpoint("https://api.softlayer.com/rest")
          .defaultProperties(SoftLayerProviderMetadata.defaultProperties());
       }

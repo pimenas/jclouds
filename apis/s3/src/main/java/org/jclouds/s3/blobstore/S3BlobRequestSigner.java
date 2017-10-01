@@ -33,6 +33,7 @@ import org.jclouds.rest.internal.RestAnnotationProcessor;
 import org.jclouds.s3.S3Client;
 import org.jclouds.s3.blobstore.functions.BlobToObject;
 import org.jclouds.s3.domain.S3Object;
+import org.jclouds.s3.filters.RequestAuthorizeSignature;
 import org.jclouds.s3.options.PutObjectOptions;
 
 import com.google.common.collect.ImmutableList;
@@ -40,6 +41,11 @@ import com.google.common.reflect.Invokable;
 
 @Singleton
 public class S3BlobRequestSigner<T extends S3Client> implements BlobRequestSigner {
+   /** Matches Amazon default when Expiry parameter not present. */
+   private static final int DEFAULT_EXPIRY_SECONDS = 15 * 60;
+
+   private final RequestAuthorizeSignature authSigner;
+
    protected final RestAnnotationProcessor processor;
    protected final BlobToObject blobToObject;
    protected final BlobToHttpGetOptions blob2HttpGetOptions;
@@ -50,41 +56,46 @@ public class S3BlobRequestSigner<T extends S3Client> implements BlobRequestSigne
 
    @Inject
    public S3BlobRequestSigner(RestAnnotationProcessor processor, BlobToObject blobToObject,
-         BlobToHttpGetOptions blob2HttpGetOptions, Class<T> interfaceClass) throws SecurityException,
-         NoSuchMethodException {
+         BlobToHttpGetOptions blob2HttpGetOptions, Class<T> interfaceClass,
+         RequestAuthorizeSignature authSigner)
+         throws SecurityException, NoSuchMethodException {
       this.processor = checkNotNull(processor, "processor");
       this.blobToObject = checkNotNull(blobToObject, "blobToObject");
       this.blob2HttpGetOptions = checkNotNull(blob2HttpGetOptions, "blob2HttpGetOptions");
       this.getMethod = method(interfaceClass, "getObject", String.class, String.class, GetOptions[].class);
       this.deleteMethod = method(interfaceClass, "deleteObject", String.class, String.class);
       this.createMethod = method(interfaceClass, "putObject", String.class, S3Object.class, PutObjectOptions[].class);
+      this.authSigner = authSigner;
    }
 
    @Override
    public HttpRequest signGetBlob(String container, String name) {
-      checkNotNull(container, "container");
-      checkNotNull(name, "name");
-      return cleanRequest(processor.apply(Invocation.create(getMethod, ImmutableList.<Object> of(container, name))));
+      return signGetBlob(container, name, DEFAULT_EXPIRY_SECONDS);
    }
 
    @Override
    public HttpRequest signGetBlob(String container, String name, long timeInSeconds) {
-      throw new UnsupportedOperationException();
+      checkNotNull(container, "container");
+      checkNotNull(name, "name");
+      HttpRequest request = processor.apply(Invocation.create(getMethod, ImmutableList.<Object> of(container, name)));
+      return cleanRequest(authSigner.signForTemporaryAccess(request, timeInSeconds));
    }
 
    @Override
    public HttpRequest signPutBlob(String container, Blob blob) {
-      checkNotNull(container, "container");
-      checkNotNull(blob, "blob");
-      return cleanRequest(processor.apply(Invocation.create(createMethod,
-            ImmutableList.<Object> of(container, blobToObject.apply(blob)))));
+      return signPutBlob(container, blob, DEFAULT_EXPIRY_SECONDS);
    }
 
    @Override
    public HttpRequest signPutBlob(String container, Blob blob, long timeInSeconds) {
-      throw new UnsupportedOperationException();
+      checkNotNull(container, "container");
+      checkNotNull(blob, "blob");
+      HttpRequest request = processor.apply(Invocation.create(createMethod,
+         ImmutableList.<Object>of(container, blobToObject.apply(blob))));
+      return cleanRequest(authSigner.signForTemporaryAccess(request, timeInSeconds));
    }
 
+   @Deprecated
    @Override
    public HttpRequest signRemoveBlob(String container, String name) {
       checkNotNull(container, "container");

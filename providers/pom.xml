@@ -22,7 +22,7 @@
   <parent>
     <artifactId>jclouds-project</artifactId>
     <groupId>org.apache.jclouds</groupId>
-    <version>2.0.0-SNAPSHOT</version>
+    <version>2.1.0-SNAPSHOT</version>
     <relativePath>../project/pom.xml</relativePath>
   </parent>
   <groupId>org.apache.jclouds.provider</groupId>
@@ -30,48 +30,50 @@
   <packaging>pom</packaging>
   <name>jclouds providers project</name>
   <modules>
-    <module>gogrid</module>
-    <module>azureblob</module>
-    <module>aws-s3</module>
-    <module>aws-ec2</module>
-    <module>aws-sqs</module>
     <module>aws-cloudwatch</module>
-    <module>elastichosts-lon-p</module>
-    <module>elastichosts-sat-p</module>
-    <module>elastichosts-lon-b</module>
-    <module>elastichosts-tor-p</module>
-    <module>elastichosts-lax-p</module>
+    <module>aws-ec2</module>
+    <module>aws-route53</module>
+    <module>aws-s3</module>
+    <module>aws-sqs</module>
+    <module>aws-sts</module>
+    <module>azureblob</module>
+    <module>b2</module>
+    <module>digitalocean2</module>
+    <module>dynect</module>
     <module>elastichosts-ams-e</module>
-    <module>elastichosts-sjc-c</module>
+    <module>elastichosts-dal-a</module>
     <module>elastichosts-hkg-e</module>
+    <module>elastichosts-lax-p</module>
+    <module>elastichosts-lon-b</module>
+    <module>elastichosts-lon-p</module>
+    <module>elastichosts-mmi-a</module>
+    <module>elastichosts-sat-p</module>
+    <module>elastichosts-sjc-c</module>
     <module>elastichosts-syd-v</module>
+    <module>elastichosts-tor-p</module>
+    <module>glesys</module>
+    <module>go2cloud-jhb1</module>
+    <module>gogrid</module>
+    <module>google-cloud-storage</module>
+    <module>google-compute-engine</module>
     <module>openhosting-east1</module>
+    <module>packet</module>
+    <module>profitbricks</module>
+    <module>rackspace-cloudblockstorage-uk</module>
+    <module>rackspace-cloudblockstorage-us</module>
+    <module>rackspace-clouddatabases-uk</module>
+    <module>rackspace-clouddatabases-us</module>
+    <module>rackspace-clouddns-uk</module>
+    <module>rackspace-clouddns-us</module>
+    <module>rackspace-cloudfiles-uk</module>
+    <module>rackspace-cloudfiles-us</module>
+    <module>rackspace-cloudloadbalancers-uk</module>
+    <module>rackspace-cloudloadbalancers-us</module>
+    <module>rackspace-cloudservers-uk</module>
+    <module>rackspace-cloudservers-us</module>
     <module>serverlove-z1-man</module>
     <module>skalicloud-sdg-my</module>
-    <module>go2cloud-jhb1</module>
     <module>softlayer</module>
-    <module>hpcloud-compute</module>
-    <module>hpcloud-blockstorage</module>
-    <module>hpcloud-objectstorage</module>
-    <module>cloudservers-us</module>
-    <module>cloudservers-uk</module>
-    <module>cloudfiles-us</module>
-    <module>cloudfiles-uk</module>
-    <module>rackspace-clouddns-us</module>
-    <module>rackspace-clouddns-uk</module>
-    <module>rackspace-clouddatabases-us</module>
-    <module>rackspace-clouddatabases-uk</module>
-    <module>rackspace-cloudloadbalancers-us</module>
-    <module>rackspace-cloudloadbalancers-uk</module>
-    <module>rackspace-cloudservers-us</module>
-    <module>rackspace-cloudservers-uk</module>
-    <module>rackspace-cloudblockstorage-us</module>
-    <module>rackspace-cloudblockstorage-uk</module>
-    <module>glesys</module>
-    <module>aws-sts</module>
-    <module>aws-route53</module>
     <module>ultradns-ws</module>
-    <module>dynect</module>
-    <module>enterprisechef</module>
   </modules>
 </project>

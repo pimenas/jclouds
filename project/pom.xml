@@ -27,7 +27,7 @@
   </parent>
   <groupId>org.apache.jclouds</groupId>
   <artifactId>jclouds-project</artifactId>
-  <version>2.0.0-SNAPSHOT</version>
+  <version>2.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>Apache jclouds Project</name>
   <url>http://jclouds.apache.org/</url>
@@ -121,22 +121,18 @@
 
   <developers>
     <developer>
-      <name>Adrian Cole</name>
-      <id>adriancole</id>
-      <email>adrian -at- jclouds -dot- org</email>
+      <name>Andrew Bayer</name>
+      <id>abayer</id>
       <roles>
         <role>Committer</role>
         <role>PMC Member</role>
       </roles>
-      <timezone>-8</timezone>
     </developer>
     <developer>
-      <name>Andrew Bayer</name>
-      <id>abayer</id>
-      <email>abayer -at- apache -dot- org</email>
+      <name>Andrea Turli</name>
+      <id>andreaturli</id>
       <roles>
         <role>Committer</role>
-        <role>PMC Member</role>
       </roles>
     </developer>
     <developer>
@@ -150,7 +146,6 @@
     <developer>
       <name>Andrew Phillips</name>
       <id>andrewp</id>
-      <email>aphillips -at- qrmedia -dot- com</email>
       <roles>
         <role>Committer</role>
         <role>PMC Member</role>
@@ -160,6 +155,14 @@
     <developer>
       <name>Becca Woods</name>
       <id>silkysun</id>
+      <roles>
+        <role>Committer</role>
+        <role>PMC Member</role>
+      </roles>
+    </developer>
+    <developer>
+      <name>Chris Custine</name>
+      <id>ccustine</id>
       <roles>
         <role>Committer</role>
         <role>PMC Member</role>
@@ -190,6 +193,13 @@
       </roles>
     </developer>
     <developer>
+      <name>Jeremy Daggett</name>
+      <id>jdaggett</id>
+      <roles>
+        <role>Committer</role>
+      </roles>
+    </developer>
+    <developer>
       <name>Matt Stephenson</name>
       <id>mattstep</id>
       <roles>
@@ -197,14 +207,34 @@
         <role>PMC Member</role>
       </roles>
     </developer>
+    <developer>
+      <name>Zach Shoylev</name>
+      <id>zachsh</id>
+      <roles>
+        <role>Committer</role>
+      </roles>
+    </developer>
   </developers>
 
   <properties>
-    <clojure.version>1.3.0</clojure.version>
-    <maven.compile.source>1.7</maven.compile.source>
-    <maven.compile.target>1.7</maven.compile.target>
+    <maven.compile.source>1.6</maven.compile.source>
+    <maven.compile.target>1.6</maven.compile.target>
     <maven.compile.deprecation>true</maven.compile.deprecation>
     <maven.site.url.base>gitsite:git@github.com/jclouds/jclouds-maven-site.git</maven.site.url.base>
+    <guava.version>18.0</guava.version>
+    <guava.osgi.import>com.google.common.*;version="[18.0,24.0.0)"</guava.osgi.import>
+    <guice.version>3.0</guice.version>
+    <okhttp.version>2.2.0</okhttp.version>
+    <okio.osgi.import>okio;version="[1.2.0,1.3)"</okio.osgi.import>
+    <surefire.version>2.17</surefire.version>
+    <assertj-core.version>1.7.0</assertj-core.version>
+    <assertj-guava.version>1.3.0</assertj-guava.version>
+    <auto-factory.version>0.1-beta1</auto-factory.version>
+    <auto-service.version>1.0-rc3</auto-service.version>
+    <auto-value.version>1.4.1</auto-value.version>
+    <java-xmlbuilder.version>1.1</java-xmlbuilder.version>
+    <osgi.version>4.2.0</osgi.version>
+    <osgi.compendium.version>${osgi.version}</osgi.compendium.version>
     <http.proxyHost />
     <http.proxyPort />
     <jclouds.wire.httpstream.url>http://archive.apache.org/dist/commons/logging/binaries/commons-logging-1.1.1-bin.tar.gz</jclouds.wire.httpstream.url>
@@ -214,38 +244,39 @@
     <jclouds.test.listener>org.jclouds.test.testng.UnitTestStatusListener</jclouds.test.listener>
     <test.ssh.keyfile />
     <sourceReleaseAssemblyDescriptor>source-release-zip-tar</sourceReleaseAssemblyDescriptor>
-    <okhttp.version>1.6.0</okhttp.version>
-    <surefire.version>2.17</surefire.version>
-    <assertj-core.version>1.6.1</assertj-core.version>
-    <assertj-guava.version>1.2.0</assertj-guava.version>
   </properties>
 
   <dependencyManagement>
     <dependencies>
       <dependency>
-        <groupId>com.jcraft</groupId>
-        <artifactId>jsch</artifactId>
-        <version>0.1.49</version>
+        <groupId>com.google.guava</groupId>
+        <artifactId>guava</artifactId>
+        <version>${guava.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.clojure</groupId>
-        <artifactId>clojure</artifactId>
-        <version>${clojure.version}</version>
+        <groupId>com.google.code.findbugs</groupId>
+        <artifactId>jsr305</artifactId>
+        <version>1.3.9</version>
       </dependency>
       <dependency>
-        <groupId>org.clojure</groupId>
-        <artifactId>tools.logging</artifactId>
-        <version>0.2.3</version>
+        <groupId>com.google.inject.extensions</groupId>
+        <artifactId>guice-assistedinject</artifactId>
+        <version>${guice.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.clojure</groupId>
-        <artifactId>core.incubator</artifactId>
-        <version>0.1.0</version>
+        <groupId>com.google.inject</groupId>
+        <artifactId>guice</artifactId>
+        <version>${guice.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.inject.extensions</groupId>
+        <artifactId>guice-multibindings</artifactId>
+        <version>${guice.version}</version>
       </dependency>
       <dependency>
         <groupId>org.easymock</groupId>
-        <artifactId>easymockclassextension</artifactId>
-        <version>3.1</version>
+        <artifactId>easymock</artifactId>
+        <version>3.4</version>
       </dependency>
       <dependency>
         <groupId>org.eclipse.jetty</groupId>
@@ -265,7 +296,7 @@
       <dependency>
         <groupId>org.testng</groupId>
         <artifactId>testng</artifactId>
-        <version>6.8.8</version>
+        <version>6.8.21</version>
         <exclusions>
           <exclusion>
             <groupId>junit</groupId>
@@ -303,9 +334,49 @@
         <artifactId>assertj-guava</artifactId>
         <version>${assertj-guava.version}</version>
       </dependency>
+      <dependency>
+        <groupId>com.google.auto.factory</groupId>
+        <artifactId>auto-factory</artifactId>
+        <version>${auto-factory.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.auto.service</groupId>
+        <artifactId>auto-service</artifactId>
+        <version>${auto-service.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.auto.value</groupId>
+        <artifactId>auto-value</artifactId>
+        <version>${auto-value.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.jamesmurty.utils</groupId>
+        <artifactId>java-xmlbuilder</artifactId>
+        <version>${java-xmlbuilder.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.osgi</groupId>
+        <artifactId>org.osgi.core</artifactId>
+        <version>${osgi.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.osgi</groupId>
+        <artifactId>org.osgi.compendium</artifactId>
+        <version>${osgi.compendium.version}</version>
+      </dependency>
     </dependencies>
   </dependencyManagement>
   <dependencies>
+    <dependency>
+      <groupId>com.google.errorprone</groupId>
+      <artifactId>error_prone_annotations</artifactId>
+      <version>2.1.0</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.code.findbugs</groupId>
+      <artifactId>jsr305</artifactId>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>org.testng</groupId>
       <artifactId>testng</artifactId>
@@ -313,28 +384,13 @@
     </dependency>
     <dependency>
       <groupId>org.easymock</groupId>
-      <artifactId>easymockclassextension</artifactId>
+      <artifactId>easymock</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>xmlunit</groupId>
       <artifactId>xmlunit</artifactId>
       <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.clojure</groupId>
-      <artifactId>clojure</artifactId>
-      <optional>true</optional>
-    </dependency>
-    <dependency>
-      <groupId>org.clojure</groupId>
-      <artifactId>tools.logging</artifactId>
-      <optional>true</optional>
-    </dependency>
-    <dependency>
-      <groupId>org.clojure</groupId>
-      <artifactId>core.incubator</artifactId>
-      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.assertj</groupId>
@@ -351,16 +407,17 @@
   <build>
     <resources>
       <resource>
-        <directory>src/main/clojure</directory>
-      </resource>
-      <resource>
         <directory>src/main/resources</directory>
+      </resource>
+      <!-- For AutoService generated services. -->
+      <resource>
+        <directory>target/classes</directory>
+        <includes>
+          <include>META-INF/services/*</include>
+        </includes>
       </resource>
     </resources>
     <testResources>
-      <testResource>
-        <directory>src/test/clojure</directory>
-      </testResource>
       <testResource>
         <directory>src/test/resources</directory>
       </testResource>
@@ -397,6 +454,8 @@
             <exclude>**/src/test/resources/**/*.txt</exclude>
             <exclude>**/src/test/resources/**/*.gz</exclude>
             <exclude>**/src/test/resources/**/*.xml</exclude>
+            <exclude>**/src/test/resources/**/*.crt</exclude>
+            <exclude>src/test/resources/html/*.html</exclude>
 
             <!-- META-INF/services files -->
             <exclude>**/services/*LoggingModule</exclude>
@@ -424,6 +483,7 @@
             <!-- SSH keys -->
             <exclude>**/test</exclude>
             <exclude>**/test.pub</exclude>
+            <exclude>**/src/test/resources/**/ssh-*.pub</exclude>
 
             <!-- temporary files or those generated by IDE or SCM -->
             <exclude>**/target/**</exclude>
@@ -449,6 +509,11 @@
             <exclude>**/.gitattributes</exclude>
             <exclude>**/.java-version</exclude>
             <exclude>**/modernizer_exclusions.txt</exclude>
+            <exclude>**/.factorypath</exclude>
+            <exclude>**/.apt_generated/**</exclude>
+            <exclude>**/.checkstyle</exclude>
+            <exclude>nb-configuration.xml</exclude>
+            <exclude>nbactions.xml</exclude>
 
             <!-- Temporary files generated on CloudBees slaves -->
             <exclude>.repository/**</exclude>
@@ -457,9 +522,9 @@
         </configuration>
       </plugin>
       <plugin>
-        <groupId>com.ning.maven.plugins</groupId>
-        <artifactId>maven-duplicate-finder-plugin</artifactId>
-        <version>1.0.5</version>
+        <groupId>org.basepom.maven</groupId>
+        <artifactId>duplicate-finder-maven-plugin</artifactId>
+        <version>1.1.2</version>
         <configuration>
           <exceptions>
             <exception>
@@ -509,12 +574,12 @@
                 <dependency>
                   <groupId>com.jcraft</groupId>
                   <artifactId>jsch.agentproxy.core</artifactId>
-                  <version>0.0.7</version>
+                  <version>0.0.9</version>
                 </dependency>
                 <dependency>
                   <groupId>com.jcraft</groupId>
                   <artifactId>jsch.agentproxy.connector-factory</artifactId>
-                  <version>0.0.7</version>
+                  <version>0.0.9</version>
                 </dependency>
               </conflictingDependencies>
               <packages>
@@ -522,25 +587,25 @@
               </packages>
             </exception>
           </exceptions>
-          <ignoredResources>
+          <ignoredResourcePatterns>
             <!-- For all the jetty packages -->
-            <ignoredResource>about\.html</ignoredResource>
+            <ignoredResourcePattern>about\.html</ignoredResourcePattern>
             <!-- There are several situations where a test-jar and another test-jar or a bundle conflict on these artifacts -->
-            <ignoredResource>log4j.xml</ignoredResource>
-            <ignoredResource>os.xml</ignoredResource>
-            <ignoredResource>virtualhardwaresection.xml</ignoredResource>
-            <ignoredResource>logback.xml</ignoredResource>
-            <ignoredResource>amzn_images.xml</ignoredResource>
-            <ignoredResource>test.jks</ignoredResource>
-            <ignoredResource>test</ignoredResource>
-            <ignoredResource>CreateInternetService-options-test.xml</ignoredResource>
-            <ignoredResource>.gitattributes</ignoredResource>
-            <ignoredResource>functions/.gitattributes</ignoredResource>
-            <ignoredResource>OSGI-OPT/bnd.bnd</ignoredResource>
+            <ignoredResourcePattern>log4j.xml</ignoredResourcePattern>
+            <ignoredResourcePattern>os.xml</ignoredResourcePattern>
+            <ignoredResourcePattern>virtualhardwaresection.xml</ignoredResourcePattern>
+            <ignoredResourcePattern>logback.xml</ignoredResourcePattern>
+            <ignoredResourcePattern>amzn_images.xml</ignoredResourcePattern>
+            <ignoredResourcePattern>test.jks</ignoredResourcePattern>
+            <ignoredResourcePattern>test</ignoredResourcePattern>
+            <ignoredResourcePattern>CreateInternetService-options-test.xml</ignoredResourcePattern>
+            <ignoredResourcePattern>.gitattributes</ignoredResourcePattern>
+            <ignoredResourcePattern>functions/.gitattributes</ignoredResourcePattern>
+            <ignoredResourcePattern>OSGI-OPT/bnd.bnd</ignoredResourcePattern>
             <!-- For bouncycastle -->
-            <ignoredResource>META-INF/BCKEY.DSA</ignoredResource>
-            <ignoredResource>META-INF/BCKEY.SF</ignoredResource>
-          </ignoredResources>
+            <ignoredResourcePattern>META-INF/BCKEY.DSA</ignoredResourcePattern>
+            <ignoredResourcePattern>META-INF/BCKEY.SF</ignoredResourcePattern>
+          </ignoredResourcePatterns>
           <failBuildInCaseOfConflict>true</failBuildInCaseOfConflict>
           <skip>${skipDuplicateFinder}</skip>
         </configuration>
@@ -552,6 +617,26 @@
             </goals>
           </execution>
         </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>animal-sniffer-maven-plugin</artifactId>
+        <version>1.11</version>
+        <executions>
+          <execution>
+            <phase>test</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <signature>
+            <groupId>org.codehaus.mojo.signature</groupId>
+            <artifactId>java16</artifactId>
+            <version>1.1</version>
+          </signature>
+        </configuration>
       </plugin>
       <plugin>
         <artifactId>maven-surefire-plugin</artifactId>
@@ -645,6 +730,8 @@
         <artifactId>maven-compiler-plugin</artifactId>
         <version>3.1</version>
         <configuration>
+          <compilerId>javac-with-errorprone</compilerId>
+          <forceJavacCompilerUse>true</forceJavacCompilerUse>
           <encoding>${project.build.sourceEncoding}</encoding>
           <source>${maven.compile.source}</source>
           <target>${maven.compile.target}</target>
@@ -653,11 +740,140 @@
             <compilerArgs>
               <compilerArg>-Xlint</compilerArg>
               <compilerArg>-Xlint:-deprecation</compilerArg>
+              <compilerArg>-Xlint:-processing</compilerArg>
               <compilerArg>-Xlint:-rawtypes</compilerArg>
               <compilerArg>-Xlint:-serial</compilerArg>
               <compilerArg>-Xlint:-unchecked</compilerArg>
+
+              <!-- on by default: warning -->
+              <compilerArg>-Xep:CannotMockFinalClass:ERROR</compilerArg>
+              <compilerArg>-Xep:ElementsCountedInLoop:ERROR</compilerArg>
+              <compilerArg>-Xep:EqualsHashCode:ERROR</compilerArg>
+              <compilerArg>-Xep:Finally:ERROR</compilerArg>
+              <compilerArg>-Xep:IncompatibleModifiers:ERROR</compilerArg>
+              <compilerArg>-Xep:JUnitAmbiguousTestClass:ERROR</compilerArg>
+              <compilerArg>-Xep:NonAtomicVolatileUpdate:OFF</compilerArg>  <!-- noisy -->
+              <compilerArg>-Xep:NonCanonicalStaticMemberImport:ERROR</compilerArg>
+              <compilerArg>-Xep:NonOverridingEquals:ERROR</compilerArg>
+              <compilerArg>-Xep:PreconditionsInvalidPlaceholder:ERROR</compilerArg>
+              <compilerArg>-Xep:ProtoFieldPreconditionsCheckNotNull:ERROR</compilerArg>
+              <compilerArg>-Xep:RequiredModifiers:ERROR</compilerArg>
+              <compilerArg>-Xep:StaticAccessedFromInstance:ERROR</compilerArg>
+              <compilerArg>-Xep:StringEquality:ERROR</compilerArg>
+              <compilerArg>-Xep:SynchronizeOnNonFinalField:ERROR</compilerArg>
+              <compilerArg>-Xep:TypeParameterUnusedInFormals:OFF</compilerArg>  <!-- noisy -->
+              <compilerArg>-Xep:UnnecessaryStaticImport:ERROR</compilerArg>
+              <compilerArg>-Xep:WaitNotInLoop:ERROR</compilerArg>
+
+              <!-- on by default: error -->
+              <compilerArg>-Xep:ArrayEquals:ERROR</compilerArg>
+              <compilerArg>-Xep:ArrayHashCode:ERROR</compilerArg>
+              <compilerArg>-Xep:ArrayToString:ERROR</compilerArg>
+              <compilerArg>-Xep:ArrayToStringCompoundAssignment:ERROR</compilerArg>
+              <compilerArg>-Xep:ArrayToStringConcatenation:ERROR</compilerArg>
+              <compilerArg>-Xep:AsyncFunctionReturnsNull:ERROR</compilerArg>
+              <compilerArg>-Xep:BadShiftAmount:ERROR</compilerArg>
+              <compilerArg>-Xep:ChainingConstructorIgnoresParameter:ERROR</compilerArg>
+              <compilerArg>-Xep:CheckReturnValue:ERROR</compilerArg>
+              <compilerArg>-Xep:ClassName:ERROR</compilerArg>
+              <compilerArg>-Xep:ComparisonOutOfRange:ERROR</compilerArg>
+              <compilerArg>-Xep:CompileTimeConstant:ERROR</compilerArg>
+              <compilerArg>-Xep:DeadException:ERROR</compilerArg>
+              <compilerArg>-Xep:DepAnn:ERROR</compilerArg>
+              <compilerArg>-Xep:DoubleCheckedLocking:ERROR</compilerArg>
+              <compilerArg>-Xep:EqualsNaN:ERROR</compilerArg>
+              <compilerArg>-Xep:ForOverride:ERROR</compilerArg>
+              <compilerArg>-Xep:GetClassOnClass:ERROR</compilerArg>
+              <compilerArg>-Xep:GuardedByChecker:ERROR</compilerArg>
+              <compilerArg>-Xep:GuiceAssistedInjectScoping:ERROR</compilerArg>
+              <compilerArg>-Xep:HashtableContains:ERROR</compilerArg>
+              <compilerArg>-Xep:InvalidPatternSyntax:ERROR</compilerArg>
+              <compilerArg>-Xep:IsInstanceOfClass:ERROR</compilerArg>
+              <compilerArg>-Xep:JUnit3TestNotRun:ERROR</compilerArg>
+              <compilerArg>-Xep:JUnit4SetUpNotRun:ERROR</compilerArg>
+              <compilerArg>-Xep:JUnit4TearDownNotRun:ERROR</compilerArg>
+              <compilerArg>-Xep:JUnit4TestNotRun:ERROR</compilerArg>
+              <compilerArg>-Xep:LongLiteralLowerCaseSuffix:ERROR</compilerArg>
+              <compilerArg>-Xep:MisusedWeekYear:ERROR</compilerArg>
+              <compilerArg>-Xep:NarrowingCompoundAssignment:ERROR</compilerArg>
+              <compilerArg>-Xep:NonCanonicalStaticImport:ERROR</compilerArg>
+              <compilerArg>-Xep:NonFinalCompileTimeConstant:ERROR</compilerArg>
+              <compilerArg>-Xep:Overrides:ERROR</compilerArg>
+              <!-- Disabled because of internal error on Windows with 2.0.5, see https://github.com/google/error-prone/issues/432 -->
+              <!-- <compilerArg>-Xep:PackageLocation:WARNING</compilerArg> -->
+              <compilerArg>-Xep:PreconditionsCheckNotNull:ERROR</compilerArg>
+              <compilerArg>-Xep:PreconditionsCheckNotNullPrimitive:ERROR</compilerArg>
+              <compilerArg>-Xep:ProtoFieldNullComparison:ERROR</compilerArg>
+              <compilerArg>-Xep:ReturnValueIgnored:ERROR</compilerArg>
+              <compilerArg>-Xep:SelfAssignment:ERROR</compilerArg>
+              <compilerArg>-Xep:SelfEquals:ERROR</compilerArg>
+              <compilerArg>-Xep:SizeGreaterThanOrEqualsZero:ERROR</compilerArg>
+              <compilerArg>-Xep:StringBuilderInitWithChar:ERROR</compilerArg>
+              <compilerArg>-Xep:SuppressWarningsDeprecated:ERROR</compilerArg>
+              <compilerArg>-Xep:TryFailThrowable:ERROR</compilerArg>
+              <compilerArg>-Xep:UnnecessaryTypeArgument:ERROR</compilerArg>
+              <compilerArg>-Xep:UnusedAnonymousClass:ERROR</compilerArg>
+
+              <!-- experimental: warning -->
+              <compilerArg>-Xep:AssertFalse:ERROR</compilerArg>
+              <compilerArg>-Xep:AssistedInjectAndInjectOnConstructors:ERROR</compilerArg>
+              <compilerArg>-Xep:CollectionIncompatibleType:ERROR</compilerArg>
+              <compilerArg>-Xep:GuiceInjectOnFinalField:ERROR</compilerArg>
+              <compilerArg>-Xep:MissingFail:ERROR</compilerArg>
+              <compilerArg>-Xep:NullablePrimitive:ERROR</compilerArg>
+              <compilerArg>-Xep:OverridesGuiceInjectableMethod:OFF</compilerArg>  <!-- internal error with 2.0.5 -->
+              <compilerArg>-Xep:PreconditionsErrorMessageEagerEvaluation:OFF</compilerArg>  <!-- internal error with 2.0.5 -->
+              <compilerArg>-Xep:PrimitiveArrayPassedToVarargsMethod:ERROR</compilerArg>
+
+              <!-- experimental: not a problem -->
+              <compilerArg>-Xep:FallthroughSuppression</compilerArg>
+
+              <!-- experimental: error -->
+              <compilerArg>-Xep:ArraysAsListPrimitiveArray:ERROR</compilerArg>
+              <compilerArg>-Xep:AssistedInjectAndInjectOnSameConstructor:ERROR</compilerArg>
+              <compilerArg>-Xep:ClassCanBeStatic:ERROR</compilerArg>
+              <compilerArg>-Xep:DivZero:ERROR</compilerArg>
+              <compilerArg>-Xep:EmptyIf:ERROR</compilerArg>
+              <compilerArg>-Xep:GuardedByValidator:ERROR</compilerArg>
+              <compilerArg>-Xep:GuiceAssistedParameters:ERROR</compilerArg>
+              <compilerArg>-Xep:InjectInvalidTargetingOnScopingAnnotation:ERROR</compilerArg>
+              <compilerArg>-Xep:InjectMoreThanOneQualifier:OFF</compilerArg>  <!-- noisy -->
+              <compilerArg>-Xep:InjectMoreThanOneScopeAnnotationOnClass:ERROR</compilerArg>
+              <compilerArg>-Xep:InjectScopeAnnotationOnInterfaceOrAbstractClass:ERROR</compilerArg>
+              <compilerArg>-Xep:InjectScopeOrQualifierAnnotationRetention:ERROR</compilerArg>
+              <compilerArg>-Xep:InjectedConstructorAnnotations:ERROR</compilerArg>
+              <compilerArg>-Xep:JMockTestWithoutRunWithOrRuleAnnotation:ERROR</compilerArg>
+              <compilerArg>-Xep:JavaxInjectOnAbstractMethod:ERROR</compilerArg>
+              <compilerArg>-Xep:JavaxInjectOnFinalField:ERROR</compilerArg>
+              <compilerArg>-Xep:LockMethodChecker:ERROR</compilerArg>
+              <compilerArg>-Xep:MalformedFormatString:ERROR</compilerArg>
+              <compilerArg>-Xep:MissingCasesInEnumSwitch:OFF</compilerArg>  <!-- noisy -->
+              <compilerArg>-Xep:ModifyingCollectionWithItself:ERROR</compilerArg>
+              <compilerArg>-Xep:MoreThanOneInjectableConstructor:OFF</compilerArg>  <!-- internal error with 2.0.5 -->
+              <compilerArg>-Xep:NoAllocation:ERROR</compilerArg>
+              <compilerArg>-Xep:NonRuntimeAnnotation:ERROR</compilerArg>
+              <compilerArg>-Xep:NumericEquality:ERROR</compilerArg>
+              <compilerArg>-Xep:OverlappingQualifierAndScopeAnnotation:ERROR</compilerArg>
+              <compilerArg>-Xep:OverridesJavaxInjectableMethod:OFF</compilerArg>  <!-- internal error with 2.0.5 -->
+              <compilerArg>-Xep:ParameterPackage:OFF</compilerArg>  <!-- internal error with 2.0.5 -->
+              <compilerArg>-Xep:ProtoStringFieldReferenceEquality:ERROR</compilerArg>
+              <compilerArg>-Xep:SelfEquality:ERROR</compilerArg>
+              <compilerArg>-Xep:UnlockMethod:ERROR</compilerArg>
+              <compilerArg>-Xep:WildcardImport:ERROR</compilerArg>
             </compilerArgs>
         </configuration>
+        <dependencies>
+          <dependency>
+            <groupId>org.codehaus.plexus</groupId>
+            <artifactId>plexus-compiler-javac-errorprone</artifactId>
+            <version>2.6</version>
+          </dependency>
+          <dependency>
+            <groupId>com.google.errorprone</groupId>
+            <artifactId>error_prone_core</artifactId>
+            <version>2.0.5</version>
+          </dependency>
+        </dependencies>
       </plugin>
       <plugin>
         <artifactId>maven-resources-plugin</artifactId>
@@ -701,7 +917,7 @@
             <Bundle-Activator>${jclouds.osgi.activator}</Bundle-Activator>
             <Bundle-SymbolicName>${project.artifactId}</Bundle-SymbolicName>
             <Export-Package>${jclouds.osgi.export}</Export-Package>
-            <Import-Package>${jclouds.osgi.import}</Import-Package>
+            <Import-Package>${guava.osgi.import},${jclouds.osgi.import}</Import-Package>
             <DynamicImport-Package>${jclouds.osgi.dynamic}</DynamicImport-Package>
             <Fragment-Host>${jclouds.osgi.fragment}</Fragment-Host>
           </instructions>
@@ -709,7 +925,7 @@
       </plugin>
       <plugin>
         <artifactId>maven-checkstyle-plugin</artifactId>
-        <version>2.13</version>
+        <version>2.15</version>
         <!-- configuration and dependencies set via profiles -->
         <executions>
           <execution>
@@ -724,7 +940,7 @@
       <plugin>
         <groupId>org.gaul</groupId>
         <artifactId>modernizer-maven-plugin</artifactId>
-        <version>1.1.0</version>
+        <version>1.4.0</version>
         <!-- configuration and dependencies set via profiles -->
         <executions>
           <execution>
@@ -798,7 +1014,7 @@
                 <configuration>
                   <encoding>${project.build.sourceEncoding}</encoding>
                   <quiet>true</quiet>
-                  <maxmemory>256m</maxmemory>
+                  <maxmemory>512m</maxmemory>
                 </configuration>
                 <reportSets>
                   <reportSet>
@@ -859,20 +1075,20 @@
         <plugin>
           <groupId>org.apache.rat</groupId>
           <artifactId>apache-rat-plugin</artifactId>
-          <version>0.10</version>
+          <version>0.12</version>
         </plugin>
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>findbugs-maven-plugin</artifactId>
-          <version>3.0.0</version>
+          <version>3.0.3</version>
           <configuration>
             <omitVisitors>
-              CheckRelaxingNullnessAnnotation,
               CloneIdiom,
               DefaultEncodingDetector,
               EqualsOperandShouldHaveClassCompatibleWithThis,
               FindBadCast2,
               FindHEmismatch,
+              FindMaskedFields,
               FindNullDeref,
               FindReturnRef,
               FindUnsatisfiedObligation,
@@ -892,37 +1108,11 @@
           <version>1.2</version>
         </plugin>
         <plugin>
-          <groupId>com.theoryinpractise</groupId>
-          <artifactId>clojure-maven-plugin</artifactId>
-          <version>1.3.10</version>
-          <configuration>
-            <sourceDirectories>
-              <sourceDirectory>src/main/clojure</sourceDirectory>
-            </sourceDirectories>
-            <testSourceDirectories>
-              <testSourceDirectory>src/test/clojure</testSourceDirectory>
-            </testSourceDirectories>
-            <clojureOptions>-Xms128m -Xmx512m -Djava.awt.headless=true -XX:MaxPermSize=256m -Xss256k</clojureOptions>
-            <warnOnReflection>true</warnOnReflection>
-            <compileDeclaredNamespaceOnly>true</compileDeclaredNamespaceOnly>
-            <testDeclaredNamespaceOnly>false</testDeclaredNamespaceOnly>
-          </configuration>
-          <executions>
-            <execution>
-              <id>test-clojure</id>
-              <phase>test</phase>
-              <goals>
-                <goal>test</goal>
-              </goals>
-            </execution>
-          </executions>
-        </plugin>
-        <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-javadoc-plugin</artifactId>
           <version>2.9</version>
           <configuration>
-            <maxmemory>256m</maxmemory>
+            <maxmemory>512m</maxmemory>
             <encoding>${project.build.sourceEncoding}</encoding>
             <quiet>true</quiet>
             <links>
@@ -1088,7 +1278,7 @@
             <groupId>org.gaul</groupId>
             <artifactId>modernizer-maven-plugin</artifactId>
             <configuration>
-              <javaVersion>1.7</javaVersion>
+              <javaVersion>${maven.compile.source}</javaVersion>
               <!-- in jclouds-project use the local file. ${project.basedir}
                 required here as 1.1.0 of the modernizer plugin can't find the
                 exclusions file otherwise -->
@@ -1137,7 +1327,7 @@
               </dependency>
             </dependencies>
             <configuration>
-              <javaVersion>1.7</javaVersion>
+              <javaVersion>${maven.compile.source}</javaVersion>
               <exclusionsFile>resources/modernizer_exclusions.txt</exclusionsFile>
             </configuration>
           </plugin>
@@ -1177,6 +1367,7 @@
                 <id>attach-sources</id>
                 <goals>
                   <goal>jar-no-fork</goal>
+                  <goal>test-jar-no-fork</goal>
                 </goals>
               </execution>
             </executions>

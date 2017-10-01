@@ -23,13 +23,10 @@ import java.io.IOException;
 import java.util.Set;
 
 import org.jclouds.compute.domain.OsFamily;
-import org.jclouds.compute.domain.OsFamilyVersion64Bit;
 import org.jclouds.compute.domain.Template;
 import org.jclouds.compute.internal.BaseTemplateBuilderLiveTest;
 import org.testng.annotations.Test;
 
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableSet;
 
 @Test(groups = "live")
@@ -39,32 +36,11 @@ public class Go2CloudJohannesburg1TemplateBuilderLiveTest extends BaseTemplateBu
       provider = "go2cloud-jhb1";
    }
 
-   @Override
-   protected Predicate<OsFamilyVersion64Bit> defineUnsupportedOperatingSystems() {
-      return Predicates.not(new Predicate<OsFamilyVersion64Bit>() {
-
-         @Override
-         public boolean apply(OsFamilyVersion64Bit input) {
-            switch (input.family) {
-            case UBUNTU:
-               return (input.version.equals("") || input.version.equals("10.10")) && input.is64Bit;
-            case DEBIAN:
-               return (input.version.equals("") || input.version.equals("6.0")) && input.is64Bit;
-            case WINDOWS:
-               return input.version.equals("") && input.is64Bit;
-            default:
-               return false;
-            }
-         }
-
-      });
-   }
-
    @Test
    public void testDefaultTemplateBuilder() throws IOException {
       Template defaultTemplate = this.view.getComputeService().templateBuilder().build();
       assertEquals(defaultTemplate.getImage().getOperatingSystem().is64Bit(), true);
-      assertEquals(defaultTemplate.getImage().getOperatingSystem().getVersion(), "10.10");
+      assertEquals(defaultTemplate.getImage().getOperatingSystem().getVersion(), "12.04");
       assertEquals(defaultTemplate.getImage().getOperatingSystem().getFamily(), OsFamily.UBUNTU);
       assertEquals(defaultTemplate.getLocation().getId(), "go2cloud-jhb1");
       assertEquals(getCores(defaultTemplate.getHardware()), 1.0d);
@@ -72,6 +48,6 @@ public class Go2CloudJohannesburg1TemplateBuilderLiveTest extends BaseTemplateBu
 
    @Override
    protected Set<String> getIso3166Codes() {
-      return ImmutableSet.<String> of("ZA-GP");
+      return ImmutableSet.of("ZA-GP");
    }
 }
